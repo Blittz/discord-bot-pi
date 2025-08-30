@@ -37,7 +37,7 @@ for name in ("discord", "discord.client", "discord.gateway"):
 
 intents = discord.Intents.default()
 intents.message_content = True
-bot = commands.Bot(command_prefix=PREFIX, intents=intents)
+bot = commands.Bot(command_prefix=PREFIX, intents=intents, help_command=None)
 
 # ----------------------------
 # In-memory stores
@@ -86,7 +86,6 @@ def load_commands() -> None:
         starter = {
             "commands": {
                 "hello": ["Hey there! 👋", "Hello!", "Yo!", "Hiya 👋"],
-                "help": "Available commands: hello, ping, version",
                 "ping": "Pong!",
                 "version": "Discord Bot on Raspberry Pi 5 — v1.0.0"
             },
@@ -140,34 +139,31 @@ async def on_ready():
 # ----------------------------
 # Dice utilities (single term + inline expressions)
 # ----------------------------
-# Single-term patterns (fallbacks / legacy support)
 DICE_SINGLE_RE = re.compile(
     r"""
     ^\s*
     (?:
-        (?P<adv>adv|dis)                 # 'adv' or 'dis'
-        (?:\s*(?P<adv_mod>[+\-]\d+))?    # optional modifier like +3
+        (?P<adv>adv|dis)
+        (?:\s*(?P<adv_mod>[+\-]\d+))?
       |
-        (?P<n>\d*)d(?P<sides>\d+)        # NdM or dM
+        (?P<n>\d*)d(?P<sides>\d+)
         (?:
-            (?P<keep>(kh|kl))(?P<knum>\d+) # kh1/kl1
+            (?P<keep>(kh|kl))(?P<knum>\d+)
         )?
-        (?P<mod>(?:[+\-]\d+)*)           # +3-1+2
+        (?P<mod>(?:[+\-]\d+)*)
     )
     \s*$
     """,
     re.IGNORECASE | re.VERBOSE
 )
 
-# Tokenizer for inline expressions: + / - sign followed by a dice term, adv/dis, or integer
-# Examples matched: +2d6kh1, -d8, +adv, -dis, +5, -12
 TOKEN_RE = re.compile(
     r"""
-    (?P<sign>[+\-]?)                                   # optional leading sign
+    (?P<sign>[+\-]?)
     (?:
-        (?P<dice>(?P<n>\d*)d(?P<sides>\d+)(?:(?P<keep>kh|kl)(?P<knum>\d+))?) # dice term
-      | (?P<advdis>adv|dis)                            # adv/dis
-      | (?P<num>\d+)                                   # plain integer
+        (?P<dice>(?P<n>\d*)d(?P<sides>\d+)(?:(?P<keep>kh|kl)(?P<knum>\d+))?)
+      | (?P<advdis>adv|dis)
+      | (?P<num>\d+)
     )
     """,
     re.IGNORECASE | re.VERBOSE
@@ -175,7 +171,6 @@ TOKEN_RE = re.compile(
 
 
 def _sum_modifiers(mod_str: str) -> int:
-    """Sum a chain like '+3-1+2' => 4."""
     if not mod_str:
         return 0
     total = 0
@@ -189,7 +184,6 @@ def _roll_once(n: int, sides: int) -> List[int]:
 
 
 def _format_roll(rolls: List[int], kept_idx: set = None) -> str:
-    """Format dice with bold on kept results when using kh/kl."""
     if not rolls:
         return "—"
     kept_idx = kept_idx or set()
@@ -200,10 +194,6 @@ def _format_roll(rolls: List[int], kept_idx: set = None) -> str:
 
 
 def roll_single(expr: str) -> Tuple[int, str]:
-    """
-    Handle a single-term expression:
-      'adv', 'dis', 'adv+3', '1d20+5', '2d20kh1', '2d20kl1', '4d6+2', 'd20'
-    """
     m = DICE_SINGLE_RE.match(expr or "")
     if not m:
         raise ValueError("Unrecognized roll syntax.")
@@ -259,18 +249,10 @@ def roll_single(expr: str) -> Tuple[int, str]:
 def roll_expression(expr: str) -> Tuple[int, str]:
     """
     Parse and evaluate inline math:
-      Examples:
-        '3d6+2d4+5'
-        '2d20kh1 + 1d6 - 2'
-        'adv + 3 + 1d4'
-        'dis - 1'
-    Rules:
-      - Expression is a series of signed tokens (dice, adv/dis, or integers).
-      - No parentheses or operator precedence—pure left-to-right summed terms.
-      - 'adv'/'dis' = roll 2d20 keep highest/lowest; they behave like a dice term.
+      '3d6+2d4+5', '2d20kh1 + 1d6 - 2', 'adv + 3 + 1d4', 'dis - 1'
+    No precedence; left-to-right sum of signed terms.
     """
     if not expr or not expr.strip():
-        # default to a single d20 (like normal !roll)
         return roll_single("d20")
 
     s = expr.replace(" ", "").lower()
@@ -279,7 +261,6 @@ def roll_expression(expr: str) -> Tuple[int, str]:
     while i < len(s):
         m = TOKEN_RE.match(s, i)
         if not m:
-            # If the whole thing looks like a single-term legacy pattern, try that
             if i == 0:
                 return roll_single(s)
             raise ValueError(f"Unrecognized token at: {s[i:]}")
@@ -293,9 +274,7 @@ def roll_expression(expr: str) -> Tuple[int, str]:
         elif m.group("advdis"):
             tokens.append(("advdis", sign, m.group("advdis").lower()))
         else:
-            # plain integer
-            val = int(m.group("num"))
-            tokens.append(("num", sign, val))
+            tokens.append(("num", sign, int(m.group("num"))))
         i = m.end()
 
     if not tokens:
@@ -352,10 +331,8 @@ def roll_expression(expr: str) -> Tuple[int, str]:
             sign_str = "+" if sign >= 0 else "-"
             parts_text.append(f"{sign_str} **{val}**")
 
-    # Clean up leading plus for readability
     if parts_text and parts_text[0].startswith("+ "):
         parts_text[0] = parts_text[0][2:]
-
     breakdown = " ".join(parts_text)
     return total, f"{breakdown} = **{total}**"
 
@@ -379,33 +356,14 @@ async def reload_cmd(ctx: commands.Context):
 @bot.command(name="roll")
 @commands.cooldown(1, COOLDOWN_SEC, BucketType.channel)
 async def roll_cmd(ctx: commands.Context, *, arg: str = "d20"):
-    """
-    Roll dice.
-
-    Inline math examples:
-      !roll 3d6 + 2d4 + 5
-      !roll 2d20kh1 + 1d6 - 2
-      !roll adv + 3 + 1d4
-      !roll dis - 1
-
-    Single-term examples (also supported):
-      !roll
-      !roll d20
-      !roll 1d20+5
-      !roll 2d20kh1
-      !roll 2d20kl1
-    """
+    """Roll dice with inline expressions (e.g., 3d6+2d4+5, adv+1)."""
     try:
-        # Try inline expression first (it will fall back to single-term if needed)
         _, text = roll_expression(arg)
         await ctx.reply(text)
-    except Exception as e:
+    except Exception:
         await ctx.reply(
             "❌ Invalid roll. Try examples like:\n"
-            "`!roll 3d6 + 2d4 + 5`\n"
-            "`!roll 2d20kh1 + 1d6 - 2`\n"
-            "`!roll adv + 3 + 1d4`\n"
-            "`!roll d20`"
+            "`!roll 3d6 + 2d4 + 5` • `!roll 2d20kh1 + 1d6 - 2` • `!roll adv + 3` • `!roll d20`"
         )
 
 
@@ -415,6 +373,30 @@ async def roll_error(ctx: commands.Context, error: Exception):
         await ctx.reply(f"⏳ Roll is on cooldown here. Try again in {error.retry_after:.1f}s.")
         return
     raise error
+
+
+@bot.command(name="help")
+async def help_cmd(ctx: commands.Context):
+    """Show available commands and keywords dynamically."""
+    # JSON commands (prefix-based)
+    json_commands = sorted(command_map.keys())
+
+    # Registered commands (exclude JSON names to avoid duplicates)
+    built_ins = sorted([name for name in bot.all_commands.keys() if name not in json_commands])
+
+    # Keywords (no prefix required)
+    keywords = sorted(keyword_map.keys())
+
+    lines = [
+        f"**Prefix:** `{PREFIX}`",
+        "",
+        "**Built-in commands:** " + (", ".join(f"`{PREFIX}{c}`" for c in built_ins) if built_ins else "_none_"),
+        "**JSON commands:** " + (", ".join(f"`{PREFIX}{c}`" for c in json_commands) if json_commands else "_none_"),
+        "**Keyword triggers (no prefix):** " + (", ".join(f"`{k}`" for k in keywords) if keywords else "_none_"),
+        "",
+        "• Dice help: try `!roll 1d20+5`, `!roll adv+2`, or `!roll 3d6 + 2d4 + 5`",
+    ]
+    await ctx.reply("\n".join(lines))
 
 
 # ----------------------------
@@ -444,7 +426,7 @@ async def on_message(message: discord.Message):
         raw = lower_content[len(PREFIX):].strip()
         first_word = raw.split(" ", 1)[0]
 
-        # Registered @bot.command (reload, roll, etc.)
+        # Registered @bot.command (e.g., help, reload, roll)
         if first_word in bot.all_commands:
             await bot.process_commands(message)
             return

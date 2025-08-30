@@ -1,7 +1,6 @@
 {
   "commands": {
     "hello": ["Hey there! 👋", "Hello!", "Yo!", "Hiya 👋"],
-    "help": "Available commands: hello, ping, version",
     "ping": "Pong!",
     "version": "Discord Bot on Raspberry Pi 5 — v1.0.0",
     "bean": ["Bean spotted 🌱", "All hail Bean 👑🫘", "Did someone spill the beans? 👀"]
