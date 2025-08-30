@@ -1,7 +1,17 @@
 {
-  "hello": "Hey there! 👋",
-  "help": "Available commands: hello, ping, version",
-  "ping": "Pong!",
-  "version": "Discord Bot on Raspberry Pi 5 — v1.0.0",
-  "roll d20": "🎲 You rolled a d20! (this is just a canned reply)"
+  "commands": {
+    "hello": ["Hey there! 👋", "Hello!", "Yo!", "Hiya 👋"],
+    "help": "Available commands: hello, ping, version",
+    "ping": "Pong!",
+    "version": "Discord Bot on Raspberry Pi 5 — v1.0.0",
+    "bean": ["Bean spotted 🌱", "All hail Bean 👑🫘", "Did someone spill the beans? 👀"]
+  },
+  "keywords": {
+    "bean": [
+      "Bean detected. Initiating chili protocol… 🌶️🫘",
+      "Mr. Bean is in the house! 🧥",
+      "It’s Bean time 🫘"
+    ],
+    "war": ["⚔️ War… war never changes.", "War? I prefer board games."]
+  }
 }
