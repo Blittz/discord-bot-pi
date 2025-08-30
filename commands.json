@@ -1,0 +1,7 @@
+{
+  "hello": "Hey there! 👋",
+  "help": "Available commands: hello, ping, version",
+  "ping": "Pong!",
+  "version": "Discord Bot on Raspberry Pi 5 — v1.0.0",
+  "roll d20": "🎲 You rolled a d20! (this is just a canned reply)"
+}
