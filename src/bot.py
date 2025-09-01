@@ -47,21 +47,6 @@ class MyBot(commands.Bot):
         super().__init__(command_prefix="!", intents=intents)
         self.tree_copy_lock = asyncio.Lock()
 
-# near top of file
-import logging
-log = logging.getLogger("bot")
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
-
-# ensure these are read
-GUILD_ID = int(os.getenv("GUILD_ID", "0"))
-OWNER_ID = int(os.getenv("OWNER_ID", "0"))
-
-class MyBot(commands.Bot):
-    def __init__(self):
-        intents = discord.Intents.default()
-        intents.message_content = True  # ok if you need it
-        super().__init__(command_prefix="!", intents=intents)
-
     async def setup_hook(self):
         # Load cogs with error visibility
         for ext in ("cogs.core", "cogs.chat", "cogs.roll", "cogs.admin", "cogs.about"):
