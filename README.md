@@ -1,39 +1,32 @@
 # Discord Bot on Raspberry Pi 5
 
-A lightweight, flexible Discord bot built with **Python** and **discord.py**, designed to run 24/7 on a Raspberry Pi 5.  
-Supports **commands and keyword triggers from JSON**, **random responses**, **per-channel cooldowns**, and a full **dice roller with inline math**.
+A Discord bot built with **discord.py** and running on a **Raspberry Pi 5**.  
+Version **2.0** introduces a clean **cog-based architecture** with **slash commands** and optional **ChatGPT integration**.
 
 ---
 
 ## ✨ Features
 
-- **Configurable commands/keywords** via `commands.json`
-  - Prefix commands (e.g. `!hello`)
-  - Keyword triggers (e.g. reply whenever "war" or "bean" is mentioned)
-  - Supports random replies if multiple strings are given
+- **Slash commands (v2)**  
+  - `/ping` – Health check  
+  - `/help` – Lists all available commands (private/ephemeral)  
+  - `/about` – Shows version, uptime, and owner  
+  - `/roll` – Dice roller (XdY±Z)  
+  - `/adv` – Roll with advantage (1dY±Z)  
+  - `/dis` – Roll with disadvantage (1dY±Z)  
+  - `/chat` – Ask ChatGPT (optional, requires API key)  
+  - `/sync` – Resync commands (owner only)
 
-- **Dice Roller**
-  - `!roll` supports:
-    - Simple rolls: `!roll`, `!roll d20`, `!roll 1d20+5`
-    - Advantage/Disadvantage: `!roll adv`, `!roll dis+2`
-    - Keep highest/lowest: `!roll 2d20kh1`, `!roll 4d6kl3`
-    - Inline math: `!roll 3d6 + 2d4 + 5`, `!roll adv + 1d4 - 2`
-  - Breakdown shows all dice rolled and which were kept
-
-- **Cooldowns**
-  - Prevent spam by enforcing per-channel cooldowns for both commands and keyword triggers (configurable via `.env`)
-
-- **Hot reload**
-  - `!reload` reloads `commands.json` without restarting the bot
-
-- **Environment-based config**
-  - Safe and flexible via `.env` file (compatible with Windows, Linux, Raspberry Pi)
+- **Runs 24/7** via `systemd` on Raspberry Pi  
+- **Automatic nightly updates** (via cron + update script)  
+- **Configurable via `.env`** for tokens, keys, and IDs  
+- **Extensible with cogs**: just drop a new file in `src/cogs/`  
 
 ---
 
-## 🛠 Requirements
+## 🛠️ Setup
 
-- Python 3.9+
-- Packages:
-  ```bash
-  pip install discord.py python-dotenv
+### 1. Clone the repo
+```bash
+git clone https://github.com/Blittz/discord-bot-pi.git
+cd discord-bot-pi
