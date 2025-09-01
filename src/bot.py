@@ -86,6 +86,10 @@ class MyBot(commands.Bot):
 
     async def on_ready(self):
         log.info(f"Logged in as {self.user} (id={self.user.id})")
+        # Set a presence tagline
+        await self.change_presence(
+            activity=discord.Game(name="D&D + ChatGPT = Fun")
+        )
 
 bot = MyBot()
 
