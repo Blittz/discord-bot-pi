@@ -2,6 +2,7 @@ import os
 import logging
 import asyncio
 import discord
+import openai
 from discord import app_commands
 from discord.ext import commands
 from dotenv import load_dotenv
@@ -11,6 +12,8 @@ load_dotenv()
 TOKEN = os.getenv("DISCORD_TOKEN")
 OWNER_ID = int(os.getenv("OWNER_ID", "0"))
 GUILD_ID = int(os.getenv("GUILD_ID", "0"))
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+openai.api_key = OPENAI_API_KEY
 ALLOWED_CHANNELS = {int(x) for x in os.getenv("ALLOWED_CHANNEL_IDS", "").split(",") if x.strip().isdigit()}
 
 # Discord Intents
