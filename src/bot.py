@@ -2,6 +2,7 @@ import os
 import logging
 import asyncio
 import discord
+from discord import app_commands
 from discord.ext import commands
 from dotenv import load_dotenv
 
@@ -22,22 +23,6 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 )
 log = logging.getLogger("bot")
-
-class Guard(commands.Cog):
-    """Global checks & error handling."""
-    def __init__(self, bot):
-        self.bot = bot
-
-    @commands.Cog.listener()
-    async def on_command_error(self, ctx, exc):
-        if isinstance(exc, commands.CommandOnCooldown):
-            await ctx.reply(f"⏳ Cooldown: try again in {exc.retry_after:.1f}s.", ephemeral=True if hasattr(ctx, "response") else False)
-        else:
-            log.exception("Command error:", exc_info=exc)
-            try:
-                await ctx.reply("⚠️ Something went wrong. The logs have details.")
-            except Exception:
-                pass
 
 async def allowed_channel(interaction: discord.Interaction) -> bool:
     return (not ALLOWED_CHANNELS) or (interaction.channel_id in ALLOWED_CHANNELS)
@@ -77,6 +62,33 @@ class MyBot(commands.Bot):
         )
 
 bot = MyBot()
+
+
+@bot.tree.error
+async def on_app_command_error(
+    interaction: discord.Interaction, error: app_commands.AppCommandError
+):
+    """Global handler for app command errors."""
+    if isinstance(error, app_commands.errors.CommandOnCooldown):
+        await interaction.response.send_message(
+            f"⏳ Cooldown: try again in {error.retry_after:.1f}s.",
+            ephemeral=True,
+        )
+    elif isinstance(error, app_commands.errors.CheckFailure):
+        await interaction.response.send_message(
+            "🔒 Not allowed in this channel.", ephemeral=True
+        )
+    else:
+        log.exception("Command error:", exc_info=error)
+        try:
+            await interaction.response.send_message(
+                "⚠️ Something went wrong. The logs have details.", ephemeral=True
+            )
+        except discord.InteractionResponded:
+            await interaction.followup.send(
+                "⚠️ Something went wrong. The logs have details.",
+                ephemeral=True,
+            )
 
 @bot.tree.command(name="ping", description="Check if the bot is alive.")
 @discord.app_commands.check(allowed_channel)
