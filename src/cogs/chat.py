@@ -41,13 +41,17 @@ class Chat(commands.Cog):
 
         async with _semaphore:
             try:
-                # Create a concise, safe answer
-                resp = client.chat.completions.create(
+                # Create a concise, safe answer without blocking the event loop
+                resp = await asyncio.to_thread(
+                    client.chat.completions.create,
                     model=OPENAI_MODEL,
                     temperature=OPENAI_TEMP,
                     max_tokens=OPENAI_MAX_TOKENS,
                     messages=[
-                        {"role": "system", "content": "You are a helpful, concise assistant for a Discord server."},
+                        {
+                            "role": "system",
+                            "content": "You are a helpful, concise assistant for a Discord server.",
+                        },
                         {"role": "user", "content": prompt.strip()},
                     ],
                 )
