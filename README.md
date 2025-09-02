@@ -15,7 +15,7 @@ Version **2.1.0** introduces a clean **cog-based architecture** with **slash com
 
 * `/ping` – Health check (latency & uptime)
   * `/help` – Lists all available commands (private/ephemeral)
-  * `/about` – Shows version, uptime, and owner
+* `/about` – Shows version, latency, uptime, and owner
   * `/roll` – Dice roller (XdY±Z)
   * `/adv` – Roll with advantage (1dY±Z)
   * `/dis` – Roll with disadvantage (1dY±Z)

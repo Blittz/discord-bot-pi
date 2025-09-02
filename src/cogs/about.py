@@ -22,6 +22,8 @@ class About(commands.Cog):
         hours, remainder = divmod(int(uptime), 3600)
         minutes, seconds = divmod(remainder, 60)
 
+        latency_ms = self.bot.latency * 1000
+
         owner = f"<@{OWNER_ID}>" if OWNER_ID else "Unknown"
 
         embed = discord.Embed(
@@ -30,6 +32,7 @@ class About(commands.Cog):
             color=discord.Color.blurple(),
         )
         embed.add_field(name="Version", value=VERSION, inline=True)
+        embed.add_field(name="Latency", value=f"{latency_ms:.0f} ms", inline=True)
         embed.add_field(name="Uptime", value=f"{hours}h {minutes}m {seconds}s", inline=True)
         embed.add_field(name="Owner", value=owner, inline=True)
         embed.set_footer(text=f"Python {platform.python_version()} • discord.py {discord.__version__}")
