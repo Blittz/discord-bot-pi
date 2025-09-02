@@ -11,7 +11,7 @@ OPENAI_MAX_TOKENS = int(os.getenv("OPENAI_MAX_TOKENS", "500"))
 OPENAI_TEMP = float(os.getenv("OPENAI_TEMP", "0.7"))
 
 # simple concurrency guard
-_semaphore = asyncio.Semaphore(2)  # at most 2 concurrent chats
+_semaphore = asyncio.Semaphore(2)  # at most 2 concurrent requests
 
 class Chat(commands.Cog):
     def __init__(self, bot):
@@ -21,9 +21,9 @@ class Chat(commands.Cog):
     def cog_check(self, ctx: commands.Context):
         return self.enabled
 
-    @app_commands.command(name="chat", description="Ask ChatGPT (guardrails on).")
+    @app_commands.command(name="ai", description="Ask ChatGPT (guardrails on).")
     @app_commands.describe(prompt="Your question or prompt")
-    async def chat(self, interaction: discord.Interaction, prompt: str):
+    async def ai(self, interaction: discord.Interaction, prompt: str):
         if not self.enabled:
             await interaction.response.send_message("🔒 ChatGPT not configured yet.", ephemeral=True)
             return
@@ -59,7 +59,7 @@ class Chat(commands.Cog):
                 content = content[:1900]  # Discord message headroom
                 await interaction.followup.send(content or "…")
             except Exception as e:
-                await interaction.followup.send(f"⚠️ Chat error: {e}")
+                await interaction.followup.send(f"⚠️ AI error: {e}")
 
 async def setup(bot):
     cog = Chat(bot)

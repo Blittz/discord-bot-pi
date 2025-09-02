@@ -6,7 +6,7 @@ from discord.ext import commands
 from discord import app_commands
 
 START_TIME = time.time()
-VERSION = "2.0.0"
+VERSION = "2.1.0"
 
 OWNER_ID = int(os.getenv("OWNER_ID", "0"))
 

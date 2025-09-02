@@ -5,7 +5,7 @@
 ![Raspberry Pi](https://img.shields.io/badge/Runs%20on-Raspberry%20Pi%205-red?logo=raspberrypi\&logoColor=white)
 
 A Discord bot built with **discord.py** and running on a **Raspberry Pi 5**.
-Version **2.0** introduces a clean **cog-based architecture** with **slash commands** and optional **ChatGPT integration**.
+Version **2.1.0** introduces a clean **cog-based architecture** with **slash commands** and optional **ChatGPT integration**.
 
 ---
 
@@ -19,7 +19,7 @@ Version **2.0** introduces a clean **cog-based architecture** with **slash comma
   * `/roll` – Dice roller (XdY±Z)
   * `/adv` – Roll with advantage (1dY±Z)
   * `/dis` – Roll with disadvantage (1dY±Z)
-  * `/chat` – Ask ChatGPT (optional, requires API key)
+  * `/ai` – Ask ChatGPT (optional, requires API key)
   * `/sync` – Resync commands (owner only)
 
 * **Runs 24/7** via `systemd` on Raspberry Pi
@@ -151,7 +151,7 @@ discord-bot-pi/
 │       ├── core.py    # /help, /ping
 │       ├── about.py   # /about
 │       ├── roll.py    # /roll, /adv, /dis
-│       ├── chat.py    # /chat (ChatGPT integration)
+│       ├── chat.py    # /ai (ChatGPT integration)
 │       └── admin.py   # /sync, owner tools
 ├── requirements.txt
 ├── .env (not committed)
@@ -164,7 +164,7 @@ discord-bot-pi/
 
 * [ ] Add fun utility commands (`/weather`, `/quote`, etc.)
 * [ ] Expand dice roller with advantage/disadvantage for pools
-* [ ] Improve `/chat` with moderation guardrails
+* [ ] Improve `/ai` with moderation guardrails
 * [ ] GitHub Actions workflow for lint/test before push
 
 ---

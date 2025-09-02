@@ -58,7 +58,7 @@ class MyBot(commands.Bot):
         log.info(f"Logged in as {self.user} (id={self.user.id})")
         # Set a presence tagline
         await self.change_presence(
-            activity=discord.Game(name="Reliable enough for D&D ⚔️🎲; witty enough for dad jokes 🤣")
+            activity=discord.Game(name="D&D ⚔️🎲; & Dad jokes 🤣")
         )
 
 bot = MyBot()
