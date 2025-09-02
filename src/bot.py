@@ -34,7 +34,14 @@ class MyBot(commands.Bot):
 
     async def setup_hook(self):
         # Load cogs with error visibility
-        for ext in ("cogs.core", "cogs.chat", "cogs.roll", "cogs.admin", "cogs.about"):
+        for ext in (
+            "cogs.core",
+            "cogs.chat",
+            "cogs.roll",
+            "cogs.admin",
+            "cogs.about",
+            "cogs.dadjoke",
+        ):
             try:
                 await self.load_extension(ext)
                 log.info(f"Loaded extension: {ext}")
