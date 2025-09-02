@@ -1,6 +1,7 @@
 import os
 import logging
 import asyncio
+import datetime
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -27,10 +28,27 @@ log = logging.getLogger("bot")
 async def allowed_channel(interaction: discord.Interaction) -> bool:
     return (not ALLOWED_CHANNELS) or (interaction.channel_id in ALLOWED_CHANNELS)
 
+
+def _format_timedelta(delta: datetime.timedelta) -> str:
+    total = int(delta.total_seconds())
+    days, total = divmod(total, 86400)
+    hours, total = divmod(total, 3600)
+    minutes, seconds = divmod(total, 60)
+    parts = []
+    if days:
+        parts.append(f"{days}d")
+    if hours:
+        parts.append(f"{hours}h")
+    if minutes:
+        parts.append(f"{minutes}m")
+    parts.append(f"{seconds}s")
+    return " ".join(parts)
+
 class MyBot(commands.Bot):
     def __init__(self):
         super().__init__(command_prefix="!", intents=intents)
         self.tree_copy_lock = asyncio.Lock()
+        self.start_time = discord.utils.utcnow()
 
     async def setup_hook(self):
         # Load cogs with error visibility
@@ -100,7 +118,12 @@ async def on_app_command_error(
 @bot.tree.command(name="ping", description="Check if the bot is alive.")
 @discord.app_commands.check(allowed_channel)
 async def ping(interaction: discord.Interaction):
-    await interaction.response.send_message("🏓 pong")
+    latency_ms = bot.latency * 1000
+    uptime = discord.utils.utcnow() - bot.start_time
+    uptime_str = _format_timedelta(uptime)
+    await interaction.response.send_message(
+        f"🏓 Pong! Latency: {latency_ms:.0f} ms | Uptime: {uptime_str}"
+    )
 
 if __name__ == "__main__":
     if not TOKEN:
