@@ -27,7 +27,7 @@ class About(commands.Cog):
         owner = f"<@{OWNER_ID}>" if OWNER_ID else "Unknown"
 
         embed = discord.Embed(
-            title="🤖 Campaign Bot",
+            title="🤖AiBot",
             description="Discord bot running on Raspberry Pi 5",
             color=discord.Color.blurple(),
         )
