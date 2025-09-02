@@ -1,5 +1,6 @@
 import os
 import asyncio
+import re
 import discord
 from discord.ext import commands
 from discord import app_commands
@@ -60,6 +61,47 @@ class Chat(commands.Cog):
                 await interaction.followup.send(content or "…")
             except Exception as e:
                 await interaction.followup.send(f"⚠️ AI error: {e}")
+
+    @commands.Cog.listener()
+    async def on_message(self, message: discord.Message):
+        if message.author.bot:
+            return
+
+        if self.bot.user and self.bot.user.mentioned_in(message) and not message.mention_everyone:
+            if not self.enabled:
+                return
+
+            prompt = re.sub(rf"<@!?{self.bot.user.id}>", "", message.content).strip()
+            if not prompt:
+                return
+            if len(prompt) > 2000:
+                await message.reply("❌ Prompt too long (max 2000 chars).")
+                return
+
+            from openai import OpenAI
+            client = OpenAI(api_key=OPENAI_API_KEY)
+
+            async with message.channel.typing():
+                async with _semaphore:
+                    try:
+                        resp = await asyncio.to_thread(
+                            client.chat.completions.create,
+                            model=OPENAI_MODEL,
+                            temperature=OPENAI_TEMP,
+                            max_tokens=OPENAI_MAX_TOKENS,
+                            messages=[
+                                {
+                                    "role": "system",
+                                    "content": "You are a helpful, concise assistant for a Discord server.",
+                                },
+                                {"role": "user", "content": prompt},
+                            ],
+                        )
+                        content = resp.choices[0].message.content.strip()
+                        content = content[:1900]
+                        await message.reply(content or "…")
+                    except Exception as e:
+                        await message.reply(f"⚠️ AI error: {e}")
 
 async def setup(bot):
     cog = Chat(bot)
