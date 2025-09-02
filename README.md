@@ -71,7 +71,7 @@ OWNER_ID=your_user_id
 GUILD_ID=your_guild_id
 # Optional OpenAI integration
 # OPENAI_API_KEY=your_openai_key
-OPENAI_MODEL=g-68acc8cf34488191a9fde1c4d6bfa8d5-kindred-of-coin-part-deux-lorekeeper
+OPENAI_MODEL=gpt-4o-mini
 OPENAI_MAX_TOKENS=500
 OPENAI_TEMP=0.7
 ```

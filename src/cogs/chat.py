@@ -6,10 +6,7 @@ from discord import app_commands
 
 # Optional dependency
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY") or ""
-OPENAI_MODEL = os.getenv(
-    "OPENAI_MODEL",
-    "g-68acc8cf34488191a9fde1c4d6bfa8d5-kindred-of-coin-part-deux-lorekeeper",
-)
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 OPENAI_MAX_TOKENS = int(os.getenv("OPENAI_MAX_TOKENS", "500"))
 OPENAI_TEMP = float(os.getenv("OPENAI_TEMP", "0.7"))
 
