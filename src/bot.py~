@@ -97,10 +97,6 @@ async def on_app_command_error(
                 ephemeral=True,
             )
 
-@bot.tree.command(name="ping", description="Check if the bot is alive.")
-@discord.app_commands.check(allowed_channel)
-async def ping(interaction: discord.Interaction):
-    await interaction.response.send_message("🏓 pong")
 
 if __name__ == "__main__":
     if not TOKEN:

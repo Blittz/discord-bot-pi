@@ -13,15 +13,14 @@ Version **2.1.0** introduces a clean **cog-based architecture** with **slash com
 
 * **Slash commands (v2)**
 
-* `/ping` – Health check (latency & uptime)
-  * `/help` – Lists all available commands (private/ephemeral)
+* `/help` – Lists all available commands (private/ephemeral)
 * `/about` – Shows version, latency, uptime, and owner
-  * `/roll` – Dice roller (XdY±Z)
-  * `/adv` – Roll with advantage (1dY±Z)
-  * `/dis` – Roll with disadvantage (1dY±Z)
-  * `/ai` – Ask ChatGPT (optional, requires API key)
-  * `/dadjoke` – Random dad joke about gaming or dogs (ChatGPT)
-  * `/sync` – Resync commands (owner only)
+* `/roll` – Dice roller (XdY±Z)
+* `/adv` – Roll with advantage (1dY±Z)
+* `/dis` – Roll with disadvantage (1dY±Z)
+* `/ai` – Ask ChatGPT (optional, requires API key)
+* `/dadjoke` – Random dad joke about gaming or dogs (ChatGPT)
+* `/sync` – Resync commands (owner only)
 
 * **Runs 24/7** via `systemd` on Raspberry Pi
 
@@ -149,7 +148,7 @@ discord-bot-pi/
 ├── src/
 │   ├── bot.py         # Main entrypoint
 │   └── cogs/          # Modular command cogs
-│       ├── core.py    # /help, /ping
+│       ├── core.py    # /help
 │       ├── about.py   # /about
 │       ├── roll.py    # /roll, /adv, /dis
 │       ├── chat.py    # /ai (ChatGPT integration)
