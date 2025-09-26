@@ -69,8 +69,7 @@ Create a `.env` file with:
 DISCORD_TOKEN=your_bot_token_here
 OWNER_ID=your_user_id
 GUILD_ID=your_guild_id
-# Optional photo saver directory (defaults to /home/blittz/jarvis/photos/Discord)
-# PHOTO_SAVE_DIR=/path/where/you/want/photos
+# PHOTO_SAVE_DIR=/path/where/you/want/photos (defaults to ~/discord-photos)
 # Optional OpenAI integration
 # OPENAI_API_KEY=your_openai_key
 OPENAI_MODEL=gpt-4o-mini

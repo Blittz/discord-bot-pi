@@ -41,7 +41,7 @@ class MyBot(commands.Bot):
             "cogs.admin",
             "cogs.about",
             "cogs.dadjoke",
-            "cogs.phogosaver",
+            "cogs.photosaver",
         ):
             try:
                 await self.load_extension(ext)

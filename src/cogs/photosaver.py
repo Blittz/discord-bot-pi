@@ -8,16 +8,9 @@ from discord.ext import commands
 
 log = logging.getLogger(__name__)
 
-
-_DEFAULT_PHOTO_BASE_DIR = Path("/home/blittz/jarvis/photos/Discord")
-
+_DEFAULT_PHOTO_BASE_DIR = Path("~/discord-photos").expanduser()
 
 def _get_photo_base_dir() -> Path:
-    """Return the base directory for saved photos.
-
-    Reads the ``PHOTO_SAVE_DIR`` environment variable and falls back to the
-    historic default path if the variable is not provided.
-    """
 
     raw_path = os.getenv("PHOTO_SAVE_DIR")
     if not raw_path:
@@ -47,7 +40,7 @@ def _sanitize_for_path(value: str, fallback: str) -> str:
 
     safe = []
     for char in value:
-        if char.isalnum() or char in {"-", "_"}:
+        if char.isalnum() or char in {"-", "_","."}:
             safe.append(char)
         else:
             safe.append("_")
