@@ -1,4 +1,5 @@
 import logging
+import os
 from pathlib import Path
 from typing import Iterable
 
@@ -8,7 +9,28 @@ from discord.ext import commands
 log = logging.getLogger(__name__)
 
 
-PHOTO_BASE_DIR = Path("/home/blittz/jarvis/photos/Discord")
+_DEFAULT_PHOTO_BASE_DIR = Path("/home/blittz/jarvis/photos/Discord")
+
+
+def _get_photo_base_dir() -> Path:
+    """Return the base directory for saved photos.
+
+    Reads the ``PHOTO_SAVE_DIR`` environment variable and falls back to the
+    historic default path if the variable is not provided.
+    """
+
+    raw_path = os.getenv("PHOTO_SAVE_DIR")
+    if not raw_path:
+        return _DEFAULT_PHOTO_BASE_DIR
+
+    expanded = Path(raw_path).expanduser()
+    if not expanded.is_absolute():
+        expanded = Path.cwd() / expanded
+
+    return expanded
+
+
+PHOTO_BASE_DIR = _get_photo_base_dir()
 
 
 def _sanitize_for_path(value: str, fallback: str) -> str:
@@ -54,6 +76,7 @@ class PhotoSaver(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         PHOTO_BASE_DIR.mkdir(parents=True, exist_ok=True)
+        log.info("PhotoSaver storing attachments in %s", PHOTO_BASE_DIR)
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message) -> None:
