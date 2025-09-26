@@ -49,17 +49,32 @@ def _sanitize_for_path(value: str, fallback: str) -> str:
     return sanitized or fallback
 
 
-def _iter_image_attachments(attachments: Iterable[discord.Attachment]):
+def _iter_downloadable_attachments(attachments: Iterable[discord.Attachment]):
     for attachment in attachments:
-        content_type = attachment.content_type or ""
-        if content_type.startswith("image/"):
+        content_type = (attachment.content_type or "").lower()
+        if any(content_type.startswith(prefix) for prefix in ("image/", "video/")):
             yield attachment
             continue
 
         # Fall back to basic extension check when Discord doesn't populate
         # ``content_type`` (for example when uploaded from some mobile apps).
         filename_lower = attachment.filename.lower()
-        if any(filename_lower.endswith(ext) for ext in (".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp")):
+        if any(
+            filename_lower.endswith(ext)
+            for ext in (
+                ".png",
+                ".jpg",
+                ".jpeg",
+                ".gif",
+                ".webp",
+                ".bmp",
+                ".mp4",
+                ".mov",
+                ".mkv",
+                ".avi",
+                ".webm",
+            )
+        ):
             yield attachment
 
 
@@ -79,8 +94,8 @@ class PhotoSaver(commands.Cog):
         if message.author.bot:
             return
 
-        image_attachments = list(_iter_image_attachments(message.attachments))
-        if not image_attachments:
+        downloadable_attachments = list(_iter_downloadable_attachments(message.attachments))
+        if not downloadable_attachments:
             return
 
         channel_name = getattr(message.channel, "name", None) or getattr(message.channel, "id", "unknown")
@@ -88,7 +103,7 @@ class PhotoSaver(commands.Cog):
         channel_dir = PHOTO_BASE_DIR / channel_dir_name
         channel_dir.mkdir(parents=True, exist_ok=True)
 
-        for attachment in image_attachments:
+        for attachment in downloadable_attachments:
             filename = _sanitize_for_path(attachment.filename, str(attachment.id))
             target_path = channel_dir / f"{attachment.id}_{filename}"
 
