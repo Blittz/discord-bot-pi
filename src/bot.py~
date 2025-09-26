@@ -65,7 +65,7 @@ class MyBot(commands.Bot):
         log.info(f"Logged in as {self.user} (id={self.user.id})")
         # Set a presence tagline
         await self.change_presence(
-            activity=discord.Game(name="D&D ⚔️🎲; & Dad jokes 🤣")
+            activity=discord.Game(name="👑🤖 “I am your AI overlord”")
         )
 
 bot = MyBot()
@@ -96,7 +96,6 @@ async def on_app_command_error(
                 "⚠️ Something went wrong. The logs have details.",
                 ephemeral=True,
             )
-
 
 if __name__ == "__main__":
     if not TOKEN:
