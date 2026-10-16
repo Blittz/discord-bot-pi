@@ -221,3 +221,8 @@ migration-report*.json
 /discord-photos/
 /logs/
 /backups/
+
+# Private generated event feed and local runtime artifacts
+events.json
+scheduled-events.json
+.events-*.tmp

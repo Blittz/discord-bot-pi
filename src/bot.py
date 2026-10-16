@@ -15,6 +15,7 @@ ALLOWED_CHANNELS = {int(x) for x in os.getenv("ALLOWED_CHANNEL_IDS", "").split("
 
 # Discord Intents
 intents = discord.Intents.default()
+intents.guild_scheduled_events = True  # Standard, non-privileged read/update intent.
 intents.message_content = True  # needed for some features; keep only if you use it
 
 # Logging
@@ -42,6 +43,7 @@ class MyBot(commands.Bot):
             "cogs.about",
             "cogs.dadjoke",
             "cogs.photosaver",
+            "cogs.events",
         ):
             try:
                 await self.load_extension(ext)

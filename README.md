@@ -254,3 +254,51 @@ There is no automatic backfill. Existing media is never removed by this policy.
 Fresh metadata requests add API traffic; Discord's HTTP client handles rate
 limits. As with any remote permission check, a server-side flag change after the
 check cannot be made atomic with a file download.
+
+
+## Private scheduled-event feed for the photo viewer
+
+The `events` cog reads scheduled events from **all servers the bot is already a
+member of**. It fetches on ready/startup and every five minutes. Standard
+`guild_scheduled_events` intent (already enabled by the installed library's
+normal defaults) supplies create/update/delete notifications; channel and guild
+changes also trigger a coalesced refresh. Polling covers missed/uncached gateway
+updates. It never creates/edits events, RSVPs, fetches subscribers or sends messages.
+
+For stage/voice events, Discord requires `VIEW_CHANNEL` to see the associated
+channel. External events require membership but no extra event-management
+permission. Do not grant `CREATE_EVENTS`, `MANAGE_EVENTS` or administrator just
+for this feature. Existing attachment intents/permissions are unchanged.
+
+The default shared file is `~/.local/state/discord-photo-viewer/events.json`.
+Both applications currently run as the same OS user; its directory is 0700 and
+atomic replacement files are 0600. This is a **local** state directory outside
+all selected photo folders, separate from network photo storage. No mount or
+system-service modifications are needed. For a deployment with different users,
+provision a directory readable by the viewer and writable by the bot, and set
+`SCHEDULED_EVENTS_FILE=/path/to/private-shared-state/events.json` in both launch
+environments. Use an absolute path outside photo libraries; keep its contents
+and all private configuration out of Git. Runtime code requires no elevation.
+
+Schema version 1 includes refresh status, last attempted/successful UTC refresh,
+server ID/name and per-server refresh status, plus event ID/server ID, title,
+start/end UTC timestamps, status, external/channel kind and nullable channel ID.
+Channel IDs are retained so old channel-associated records can be reverified on
+fetch failures. Descriptions, creator details, attendee lists/counts, cover images,
+external locations and links are not exported; invite URLs in titles are redacted.
+
+Every channel-associated event uses the same fresh fail-closed restriction gate
+as attachments, including parent checks if applicable. Restricted and unknown
+channels are excluded. External events are represented without a channel or a
+fabricated restriction flag. On partial/API failure, old external and freshly
+reverified safe channel events can be retained, with `refresh_ok=false` and the
+last successful time unchanged. **Never retain an unverifiable channel record**
+just to preserve a stale preview. A successful refresh removes canceled/completed,
+deleted or newly restricted events. Removed servers disappear from the feed.
+The viewer also expires old snapshots, including when publication fails.
+
+`os.replace` publishes one complete fsynced JSON file, never partial data. The
+256 KiB size cap fails closed rather than truncating an oversized collection.
+No event titles, descriptions or API exception bodies appear in exporter logs.
+This feed does not alter attachment downloads, mount validation, channel maps,
+deduplication, or any previously downloaded photo/video.
