@@ -207,3 +207,17 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 *~
+
+# Private runtime configuration, channel identity, media and recovery data
+.env.*
+!.env.example
+channels.json
+photo-channel-map.json
+channel-mapping.json
+migration-report*.json
+/photos/
+/media/
+/downloads/
+/discord-photos/
+/logs/
+/backups/
