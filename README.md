@@ -234,3 +234,23 @@ Run the isolated storage regression suite without Discord or a mounted share:
 ```bash
 python -B -m unittest discover -s tests -v
 ```
+
+
+### Age-restricted channels
+
+Every image/video attachment passes a fresh Discord `GET /channels/{id}` check
+before storage preparation or download. The `nsfw` boolean is Discord's
+Age-Restricted flag. Restricted channels are skipped. Threads, including forum
+and media posts, also require a fresh, explicitly unrestricted parent channel.
+Missing flags, missing parents, unsupported channel types, permission errors,
+and metadata/network failures skip the attachment; no cached unrestricted
+assumption or local fallback is used. Logs contain only a channel ID and a short
+reason for these skips, never message contents, tokens, or exception URLs.
+
+`PhotoSaver.save_attachments` is the shared download entry point. Any future
+history/backfill must call it rather than saving attachments directly, so the
+same per-attachment policy, network mount checks, mapping and deduplication apply.
+There is no automatic backfill. Existing media is never removed by this policy.
+Fresh metadata requests add API traffic; Discord's HTTP client handles rate
+limits. As with any remote permission check, a server-side flag change after the
+check cannot be made atomic with a file download.

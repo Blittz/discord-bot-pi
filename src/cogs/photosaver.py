@@ -7,6 +7,7 @@ from typing import Iterable
 import discord
 from discord.ext import commands
 from src.photo_storage import NetworkPhotoStore, sanitize
+from src.attachment_policy import attachment_skip_reason
 
 log = logging.getLogger(__name__)
 PHOTO_BASE_DIR = Path(os.getenv("PHOTO_SAVE_DIR", "~/discord-photos")).expanduser().absolute()
@@ -61,12 +62,20 @@ class PhotoSaver(commands.Cog):
     async def on_message(self, message: discord.Message) -> None:
         if not message.attachments or message.author.bot:
             return
-        channel_id = message.channel.id
-        channel_name = str(getattr(message.channel, "name", channel_id))
-        for attachment in _iter_downloadable_attachments(message.attachments):
+        await self.save_attachments(message.channel, message.attachments)
+
+    async def save_attachments(self, channel, attachments):
+        """Only download entry point; future backfills must use this age gate too."""
+        channel_id = channel.id
+        channel_name = str(getattr(channel, "name", channel_id))
+        for attachment in _iter_downloadable_attachments(attachments):
             pending = None
             async with self._storage_lock:
                 try:
+                    reason = await attachment_skip_reason(self.bot.http, channel_id)
+                    if reason:
+                        log.info("PhotoSaver skipped channel=%s reason=%s", channel_id, reason)
+                        continue
                     pending = await asyncio.to_thread(self.store.prepare, channel_id, channel_name,
                                                       attachment.id, attachment.filename, attachment.size)
                     if pending is None:
