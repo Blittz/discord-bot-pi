@@ -66,6 +66,9 @@ class PhotoSaver(commands.Cog):
 
     async def save_attachments(self, channel, attachments):
         """Only download entry point; future backfills must use this age gate too."""
+        guild = getattr(channel, "guild", None)
+        if guild is None:
+            return
         channel_id = channel.id
         channel_name = str(getattr(channel, "name", channel_id))
         for attachment in _iter_downloadable_attachments(attachments):
@@ -76,7 +79,7 @@ class PhotoSaver(commands.Cog):
                     if reason:
                         log.info("PhotoSaver skipped channel=%s reason=%s", channel_id, reason)
                         continue
-                    pending = await asyncio.to_thread(self.store.prepare, channel_id, channel_name,
+                    pending = await asyncio.to_thread(self.store.prepare, guild.id, guild.name, channel_id, channel_name,
                                                       attachment.id, attachment.filename, attachment.size)
                     if pending is None:
                         log.info("PhotoSaver duplicate skipped attachment=%s channel=%s", attachment.id, channel_id)

@@ -62,7 +62,7 @@ class AttachmentPolicyTests(unittest.IsolatedAsyncioTestCase):
                 attachment = SimpleNamespace(content_type=mime, filename=filename, save=AsyncMock())
                 with patch('src.cogs.photosaver.attachment_skip_reason', AsyncMock(return_value=reason)):
                     with self.assertLogs('src.cogs.photosaver', level='INFO') as logs:
-                        await cog.save_attachments(SimpleNamespace(id=1, name='private-name'), [attachment])
+                        await cog.save_attachments(SimpleNamespace(id=1, name='private-name', guild=SimpleNamespace(id=9,name='Server')), [attachment])
                 cog.store.prepare.assert_not_called()
                 attachment.save.assert_not_awaited()
                 self.assertNotIn('private-name', ' '.join(logs.output))
@@ -74,7 +74,7 @@ class AttachmentPolicyTests(unittest.IsolatedAsyncioTestCase):
         cog.store.prepare.return_value = None
         attachments = [SimpleNamespace(id=i, filename='test.jpg', content_type='image/jpeg',
                                        size=3, save=AsyncMock()) for i in (2, 3)]
-        await cog.save_attachments(SimpleNamespace(id=1, name='example'), attachments)
+        await cog.save_attachments(SimpleNamespace(id=1, name='example', guild=SimpleNamespace(id=9,name='Server')), attachments)
         self.assertEqual(cog.store.prepare.call_count, 1)
         self.assertEqual(http.get_channel.await_count, 2)
         for attachment in attachments:
@@ -85,10 +85,18 @@ class AttachmentPolicyTests(unittest.IsolatedAsyncioTestCase):
         cog = self.cog(http)
         pending = cog.store.prepare.return_value
         attachment = SimpleNamespace(id=2, filename='test.mp4', content_type='video/mp4', size=3, save=AsyncMock())
-        await cog.save_attachments(SimpleNamespace(id=1, name='example'), [attachment])
+        await cog.save_attachments(SimpleNamespace(id=1, name='example', guild=SimpleNamespace(id=9,name='Server')), [attachment])
         attachment.save.assert_awaited_once_with(pending.file)
+        cog.store.prepare.assert_called_once_with(9, 'Server', 1, 'example', 2, 'test.mp4', 3)
         pending.finish.assert_called_once_with(3)
         pending.close.assert_called_once()
+
+
+class DirectMessageTests(unittest.IsolatedAsyncioTestCase):
+    async def test_no_server_identity_never_saves(self):
+        cog=object.__new__(PhotoSaver);cog.store=Mock()
+        await cog.save_attachments(SimpleNamespace(id=1), [Mock()])
+        cog.store.prepare.assert_not_called()
 
 
 if __name__ == '__main__':

@@ -213,18 +213,26 @@ support for `renameat2(RENAME_NOREPLACE)` are required; unsupported operations
 fail closed. Configure the actual mount root, not a directory inside the share.
 The systemd user and home paths above are examples too.
 
-Keep the map outside Git and include it in a private backup. For existing folders,
-seed it with the real channel IDs and their **exact existing** folder names before
-running the bot. Example schema, using a fictitious channel ID:
+Keep the map outside Git and include it in a private backup. Existing flat
+folders and version 1 mappings require an offline identity-verified migration;
+see “Server/channel photo folders” below. Version 2 example, using fictitious IDs:
 
 ```json
-{"123456789012345678": {"folder": "example-channel"}}
+{
+  "schema_version": 2,
+  "servers": {
+    "1": {
+      "folder": "Example server",
+      "channels": {"10": {"folder": "example-channel"}}
+    }
+  }
+}
 ```
 
-Never replace an existing map with this example. IDs remain the identity when a
-channel is renamed; Unicode letters are preserved. Review collisions manually
-instead of renaming existing directories or creating a second tree. Store tokens,
-channel IDs, real folder names, migration reports, media and backups privately.
+Never replace an existing map with this example. Server and channel IDs remain
+the identity after renames. New identities receive separate numbered folders when
+names collide; existing assigned folders retain their spelling. Store tokens,
+server/channel IDs, real folder names, migration reports, media and backups privately.
 No history replay is performed after an outage; any missed attachments require a
 separately reviewed backfill. Duplicate IDs are skipped when their existing size
 matches, and conflicting sizes are rejected without overwriting either file.
@@ -302,3 +310,42 @@ The viewer also expires old snapshots, including when publication fails.
 No event titles, descriptions or API exception bodies appear in exporter logs.
 This feed does not alter attachment downloads, mount validation, channel maps,
 deduplication, or any previously downloaded photo/video.
+
+
+### Server/channel photo folders
+
+PhotoSaver stores new media beneath `PHOTO_SAVE_DIR` as
+`<server folder>/<channel folder>/<attachment ID>_<existing filename convention>`.
+The private `PHOTO_CHANNEL_MAP` uses schema version 2: `servers` is keyed by
+Discord server ID, and each server's `channels` is keyed by channel ID. Each
+entry records its assigned `folder`; renaming a Discord server/channel does not
+rename its storage. Keep this mapping outside Git and back it up with the media.
+
+Folder names preserve readable Unicode, replace Windows forbidden/control
+characters, strip trailing spaces/dots, and escape reserved device names.
+Case/normalization collisions and existing unassigned directories receive an
+explicit numbered suffix such as `notes (2)`; unrelated identities never share
+an assigned folder. Attachment-ID deduplication scans the entire photo root,
+including legacy directories that have not been migrated.
+
+Legacy flat mappings require an offline migration before this version can load
+PhotoSaver. Stop the bot, back up its private mapping, verify channel IDs and
+their guild IDs against Discord, and inventory media before moving directories.
+Only move directories with established identity; retain ambiguous directories.
+Use no-replace moves on the verified network mount, verify filenames/sizes/hashes,
+then atomically publish the new mapping before starting the bot. Never infer
+legacy ownership from folder names alone. The viewer can continue selecting the
+photo root recursively. Migration inventories and recovery records belong outside
+Git alongside the private mapping backup.
+
+Unverifiable legacy channel assignments can be retained privately in
+`unresolved_legacy_channels`. Saving for those IDs fails closed until an offline
+identity review resolves the entry; the original mapping backup remains available.
+
+If a legacy folder's server ownership is explicitly confirmed but its channel-ID
+provenance is unavailable, it may be relocated intact beneath that server as a
+separate unassigned legacy folder. Verify hashes before and after a no-replace
+move while downloads are paused. Do not merge it into a live channel's assigned
+folder or invent a channel mapping; recursive viewing and root-wide deduplication
+still include the relocated legacy files. Keep the ownership evidence and
+verification records private, outside Git.

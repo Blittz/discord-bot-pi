@@ -1,9 +1,9 @@
 """Fail-closed, mount-anchored photo storage with immutable attachment IDs."""
 import ctypes
-import errno
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import tempfile
 import unicodedata
@@ -19,13 +19,42 @@ class StorageConflict(OSError):
 
 
 def sanitize(value, fallback='unknown'):
-    # Preserve the established mapping, including decorative Unicode letters.
+    """A readable Windows path component (never a path or device name)."""
+    safe = ''.join('_' if unicodedata.category(c) in ('Cc', 'Cs') or c in '<>:"/\\|?*' else c
+                   for c in str(value)).rstrip(' .')
+    if not safe or not safe.strip('_'):
+        safe = fallback
+    if re.fullmatch(r'(CON|PRN|AUX|NUL|CONIN\$|CONOUT\$|COM[1-9¹²³]|LPT[1-9¹²³])(?:\..*)?', safe, re.I):
+        safe = '_' + safe
+    return safe
+
+
+def attachment_name(value, fallback):
+    # Keep the established attachment filename convention unchanged.
     safe = ''.join(c if c.isalnum() or c in '-_.' else '_' for c in value.strip()).strip('_')
     return safe if safe and safe not in ('.', '..') else fallback
 
 
 def folder_key(value):
-    return unicodedata.normalize('NFC', value).casefold()
+    # Conservative Unicode folding also catches normalization aliases on shares.
+    return unicodedata.normalize('NFC', value).rstrip(' .').casefold()
+
+
+def valid_folder(folder):
+    if not isinstance(folder, str) or folder != sanitize(folder) or folder in ('.', '..'):
+        raise StorageConflict('Unsafe folder in private mapping')
+    return folder
+
+
+def choose_folder(name, assigned, existing):
+    """Explicitly disambiguate new identities; never adopt an existing directory."""
+    used = {folder_key(n) for n in [*assigned, *existing]}
+    candidate = stem = sanitize(name)
+    suffix = 2
+    while folder_key(candidate) in used:
+        candidate = f'{stem} ({suffix})'
+        suffix += 1
+    return candidate
 
 
 def digest_file(file):
@@ -79,7 +108,7 @@ def attachment_index(fd):
     result = {}
     # This path remains anchored to the open network fd across a lazy unmount.
     for root, dirs, files in os.walk('/proc/self/fd/' + str(fd), followlinks=False):
-        dirs[:] = [d for d in dirs if not d.startswith('.') and not Path(root, d).is_symlink()]
+        dirs[:] = [d for d in dirs if not Path(root, d).is_symlink()]
         for filename in files:
             aid = filename.split('_', 1)[0]
             if aid.isdigit() and not Path(root, filename).is_symlink():
@@ -106,12 +135,20 @@ class PendingFile:
         self.temporary = None
         self.filename = filename
         try:
-            if folder_key(folder) in ('.', '..') or '/' in folder or not folder:
-                raise StorageConflict('Unsafe folder')
+            for component in folder:
+                valid_folder(component)
             # Anchored mkdir/open can never fall through to an underlying local mountpoint.
-            try: os.mkdir(folder, dir_fd=base_fd)
-            except FileExistsError: pass
-            self.directory_fd = os.open(folder, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=base_fd)
+            parent = os.dup(base_fd)
+            try:
+                for component in folder:
+                    try: os.mkdir(component, dir_fd=parent)
+                    except FileExistsError: pass
+                    child = os.open(component, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
+                    os.close(parent); parent = child
+                self.directory_fd = parent
+            except BaseException:
+                os.close(parent)
+                raise
             try:
                 os.stat(filename, dir_fd=self.directory_fd, follow_symlinks=False)
                 raise StorageConflict('Target already exists')
@@ -157,35 +194,82 @@ class NetworkPhotoStore:
     def __init__(self, base, mount, state_file, fs='cifs'):
         self.base, self.mount, self.fs = Path(base).absolute(), Path(mount).absolute(), fs
         self.state_file = Path(state_file)
-        self.mapping = json.loads(self.state_file.read_text()) if self.state_file.exists() else {}
+        self.mapping = json.loads(self.state_file.read_text()) if self.state_file.exists() else {'schema_version': 2, 'servers': {}}
+        if self.mapping.get('schema_version') != 2:
+            raise StorageConflict('Legacy mapping must be migrated while downloads are stopped')
+        self.validate_mapping()
+
+    def validate_mapping(self):
+        servers = self.mapping.get('servers')
+        if not isinstance(servers, dict):
+            raise StorageConflict('Invalid private server mapping')
+        server_names = set()
+        channel_ids = set()
+        for sid, server in servers.items():
+            if not sid.isdigit():
+                raise StorageConflict('Invalid server identity')
+            key = folder_key(valid_folder(server['folder']))
+            if key in server_names:
+                raise StorageConflict('Duplicate server folder assignment')
+            server_names.add(key)
+            channel_names = set()
+            for cid, channel in server['channels'].items():
+                key = folder_key(valid_folder(channel['folder']))
+                if not cid.isdigit() or cid in channel_ids or key in channel_names:
+                    raise StorageConflict('Duplicate channel identity or folder assignment')
+                channel_ids.add(cid); channel_names.add(key)
 
     def verify(self):
         fd, identity = open_base(self.base, self.mount, self.fs)
         os.close(fd)
         return identity
 
-    def folder_for(self, channel_id, channel_name, base_fd):
-        key = str(channel_id)
-        if key in self.mapping:
-            return self.mapping[key]['folder']
-        folder = sanitize(channel_name, 'unknown')
-        if any(folder_key(v['folder']) == folder_key(folder) for v in self.mapping.values()):
-            raise StorageConflict('Channel folder collision; needs explicit mapping')
-        if any(folder_key(name) == folder_key(folder) for name in os.listdir(base_fd)):
-            raise StorageConflict('Existing unassigned folder; needs explicit mapping')
-        self.mapping[key] = {'folder': folder}
+    def folder_for(self, server_id, server_name, channel_id, channel_name, base_fd):
+        sid, cid = str(server_id), str(channel_id)
+        if not sid.isdigit() or not cid.isdigit():
+            raise StorageConflict('Discord server and channel identity required')
+        self.validate_mapping()
+        if cid in self.mapping.get('unresolved_legacy_channels', {}):
+            raise StorageConflict('Legacy channel assignment needs identity review before use')
+        servers = self.mapping['servers']
+        if any(cid in s['channels'] for other_sid, s in servers.items() if other_sid != sid):
+            raise StorageConflict('Channel already assigned to a different server')
+        # Work on a copy: a failed state write must not assign an identity in memory.
+        candidate = json.loads(json.dumps(self.mapping))
+        target = candidate['servers']
+        if sid not in target:
+            target[sid] = {'folder': choose_folder(server_name,
+                [s['folder'] for s in servers.values()], os.listdir(base_fd)), 'channels': {}}
+        server = target[sid]
+        server_folder = valid_folder(server['folder'])
+        try:
+            fd = os.open(server_folder, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=base_fd)
+        except FileNotFoundError:
+            existing = []
+        else:
+            try: existing = os.listdir(fd)
+            finally: os.close(fd)
+        if cid not in server['channels']:
+            server['channels'][cid] = {'folder': choose_folder(channel_name,
+                [c['folder'] for c in server['channels'].values()], existing)}
+        channel_folder = valid_folder(server['channels'][cid]['folder'])
+        if candidate != self.mapping:
+            self.write_mapping(candidate)
+            self.mapping = candidate
+        return server_folder, channel_folder
+
+    def write_mapping(self, mapping):
         self.state_file.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         raw, temp = tempfile.mkstemp(prefix='.channels-', dir=self.state_file.parent)
         try:
             with os.fdopen(raw, 'w') as file:
-                json.dump(self.mapping, file, ensure_ascii=False, indent=2)
+                json.dump(mapping, file, ensure_ascii=False, indent=2)
                 file.flush(); os.fsync(file.fileno())
             os.replace(temp, self.state_file)
         finally:
             if os.path.exists(temp): os.unlink(temp)
-        return folder
 
-    def prepare(self, channel_id, channel_name, attachment_id, filename, expected_size=None):
+    def prepare(self, server_id, server_name, channel_id, channel_name, attachment_id, filename, expected_size=None):
         base_fd, identity = open_base(self.base, self.mount, self.fs)
         try:
             duplicates = attachment_index(base_fd).get(str(attachment_id), [])
@@ -194,9 +278,9 @@ class NetworkPhotoStore:
                     raise StorageConflict('Existing attachment ID has a different size')
                 os.close(base_fd)
                 return None
-            folder = self.folder_for(channel_id, channel_name, base_fd)
+            folder = self.folder_for(server_id, server_name, channel_id, channel_name, base_fd)
         except BaseException:
             os.close(base_fd)
             raise
         return PendingFile(self, base_fd, identity, folder,
-                           str(attachment_id) + '_' + sanitize(filename, str(attachment_id)))
+                           str(attachment_id) + '_' + attachment_name(filename, str(attachment_id)))
