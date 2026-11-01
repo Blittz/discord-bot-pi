@@ -49,6 +49,6 @@ def test_leaderboard_visibility_choices_and_private_default():
     assert (None is None)  # omitted visibility maps to private in the command implementation
 
 def test_leaderboard_format_places_funny_before_groan():
-    from src.cogs.dadjoke import DadJoke
-    source = DadJoke.leaderboard.callback.__code__.co_consts
-    assert any("😂 Funny:" in str(value) and "🙄 Groan:" in str(value) for value in source)
+    from pathlib import Path
+    source = Path(__file__).parents[1].joinpath("src/cogs/dadjoke.py").read_text()
+    assert "😂 Funny: {funny}    🙄 Groan: {groans}" in source
