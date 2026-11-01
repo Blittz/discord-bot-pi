@@ -81,7 +81,7 @@ class DadJoke(commands.Cog):
             self.last_joke = joke
         message = await interaction.followup.send(joke, view=RatingView(self, interaction.guild_id, joke, None), wait=True)
         self.ratings.record_post(interaction.guild_id, message.id, joke)
-        self.ratings.record_usage(interaction.guild_id, interaction.user.id, interaction.id, datetime.now(timezone.utc).strftime("%Y-%m"))
+        self.ratings.record_usage(interaction.guild_id, interaction.user.id, interaction.id, datetime.now(timezone.utc).strftime("%Y-%m"), interaction.channel_id)
         await message.edit(view=RatingView(self, interaction.guild_id, joke, message.id))
 
     @app_commands.command(name="dadjoke-leaderboard", description="Show the top groan-worthy dad jokes in this server")
@@ -92,9 +92,19 @@ class DadJoke(commands.Cog):
         await interaction.response.defer(ephemeral=ephemeral)
         month = datetime.now(timezone.utc).strftime("%Y-%m")
         month_label = datetime.now(timezone.utc).strftime("%B %Y")
+        channel_name = getattr(interaction.channel, "name", "this channel")
+        channel_total, channel_unique = self.ratings.channel_usage(interaction.guild_id, interaction.channel_id, month)
+        top_users = self.ratings.top_users(interaction.guild_id, interaction.channel_id, month)
         jokes_requested, unique_users = self.ratings.usage_summary(interaction.guild_id, month)
         rows = self.ratings.leaderboard(interaction.guild_id)
-        stats = f"📅 {month_label}\n🎭 Jokes requested: {jokes_requested}\n👥 Unique users: {unique_users}\n\n"
+        user_lines = []
+        for index, (user_id, count) in enumerate(top_users, 1):
+            member = interaction.guild.get_member(user_id) if interaction.guild else None
+            display = getattr(member, "display_name", f"User {user_id}")
+            display = clean_joke(display).replace("@", "@\u200b")
+            user_lines.append(f"**{index}.** {display} — {count}")
+        users_text = "\n".join(user_lines) if user_lines else "No requests yet."
+        stats = f"📅 {month_label} · #{clean_joke(channel_name)}\n\n**Current channel**\n🎭 Jokes requested: {channel_total}\n👥 Unique users: {channel_unique}\n\n**Top 5 Users**\n{users_text}\n\n**Server-wide this month**\n🎭 Jokes requested: {jokes_requested}\n👥 Unique users: {unique_users}\n\n"
         if not rows: text = stats + "No rated dad jokes in this server yet."
         else: text = stats + "**Dad Joke Leaderboard**\n" + "\n".join(f"**{i}.** 😂 {funny}    🙄 {groans} — {joke[:180]}" for i,(joke,groans,funny) in enumerate(rows,1))
         try:

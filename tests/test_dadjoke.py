@@ -47,6 +47,16 @@ def test_monthly_usage_unique_duplicate_and_guild_separation(tmp_path):
     assert db.usage_summary(1, "2026-11") == (2, 2)
     assert db.usage_summary(2, "2026-11") == (1, 1)
     assert db.usage_summary(1, "2026-12") == (0, 0)
+    db.record_usage(1, 10, 103, "2026-11", 55); db.record_usage(1, 11, 104, "2026-11", 55)
+    assert db.channel_usage(1, 55, "2026-11") == (2, 2)
+    assert db.top_users(1, 55, "2026-11")[0] == (10, 2)
+
+def test_old_usage_schema_migrates_channel_column(tmp_path):
+    import sqlite3
+    path = tmp_path / "old.sqlite3"; db = sqlite3.connect(path)
+    db.execute('CREATE TABLE usage (guild_id INTEGER, month TEXT, user_id INTEGER, interaction_id INTEGER UNIQUE, PRIMARY KEY(guild_id,month,user_id,interaction_id))'); db.commit(); db.close()
+    ratings = JokeRatings(path); ratings.record_usage(1, 2, 3, "2026-11", 9)
+    assert ratings.channel_usage(1, 9, "2026-11") == (1, 1)
 
 def test_leaderboard_visibility_choices_and_private_default():
     from src.cogs.dadjoke import DadJoke
