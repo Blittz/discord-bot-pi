@@ -570,16 +570,25 @@ class Audio(commands.Cog):
             vc.play(source, after=after)
             await self._presence_start(state)
             content = f"**Now Playing:**\n{friendly_audio_name(path)}\n\n{state.display()}"
-            if message:
-                await message.edit(content=content, view=PlaybackView(self, guild.id, requester.id))
-                self.player_messages[interaction.channel_id] = message
-            else:
-                message = await interaction.followup.send(content, view=PlaybackView(self, guild.id, requester.id), ephemeral=True, wait=True)
-                self.player_messages[interaction.channel_id] = message
+            # UI updates are deliberately isolated from the audio lifecycle. A stale
+            # ephemeral interaction must never stop a voice client that is already playing.
+            try:
+                if message:
+                    await message.edit(content=content, view=PlaybackView(self, guild.id, requester.id))
+                    self.player_messages[interaction.channel_id] = message
+                else:
+                    message = await interaction.followup.send(content, view=PlaybackView(self, guild.id, requester.id), ephemeral=True, wait=True)
+                    self.player_messages[interaction.channel_id] = message
+            except Exception:
+                log.warning("Player message update failed after playback started", exc_info=True)
             error = await done
             if error: log.error("Audio playback failed: %s", type(error).__name__)
-        except Exception:
-            await interaction.followup.send("I could not start playback. Check voice permissions and that the file is valid.", ephemeral=True)
+        except Exception as error:
+            log.exception("Audio playback failed before completion: %s", type(error).__name__)
+            try:
+                await interaction.followup.send("Playback could not be started. Check the voice connection and audio file.", ephemeral=True)
+            except Exception:
+                log.warning("Unable to send playback failure response", exc_info=True)
         finally:
             current = self.sessions.get(guild.id)
             if current and current.token == token:
