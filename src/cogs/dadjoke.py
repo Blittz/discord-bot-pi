@@ -83,11 +83,18 @@ class DadJoke(commands.Cog):
         await message.edit(view=RatingView(self, interaction.guild_id, joke, message.id))
 
     @app_commands.command(name="dadjoke-leaderboard", description="Show the top groan-worthy dad jokes in this server")
-    async def leaderboard(self, interaction):
+    @app_commands.describe(visibility="Show privately or post publicly in this channel")
+    @app_commands.choices(visibility=[app_commands.Choice(name="Private", value="private"), app_commands.Choice(name="Public", value="public")])
+    async def leaderboard(self, interaction, visibility: app_commands.Choice[str] | None = None):
+        ephemeral = not visibility or visibility.value == "private"
+        await interaction.response.defer(ephemeral=ephemeral)
         rows = self.ratings.leaderboard(interaction.guild_id)
-        if not rows: return await interaction.response.send_message("No rated dad jokes in this server yet.", ephemeral=True)
+        if not rows: return await interaction.followup.send("No rated dad jokes in this server yet.", ephemeral=ephemeral)
         text = "**Dad Joke Leaderboard**\n" + "\n".join(f"**{i}.** 🙄 {groans} · 😂 {funny} — {joke[:180]}" for i,(joke,groans,funny) in enumerate(rows,1))
-        await interaction.response.send_message(text[:1900], ephemeral=True)
+        try:
+            await interaction.followup.send(text[:1900], ephemeral=ephemeral)
+        except discord.Forbidden:
+            if not ephemeral: await interaction.followup.send("I cannot post publicly in this channel. Try `visibility: private`.", ephemeral=True)
 
 class RatingView(discord.ui.View):
     def __init__(self, cog, guild_id, joke, message_id):

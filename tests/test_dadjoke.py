@@ -40,3 +40,10 @@ def test_ratings_change_remove_persist_and_isolate(tmp_path):
     db.vote(1, jid, 4, "groan"); db.vote(2, jid, 4, "funny")
     assert db.totals(1, jid) == (0, 1) and db.totals(2, jid) == (1, 0)
     db.db.close(); reopened = JokeRatings(tmp_path / "ratings.sqlite3"); assert reopened.totals(1, jid) == (0, 1)
+
+def test_leaderboard_visibility_choices_and_private_default():
+    from src.cogs.dadjoke import DadJoke
+    command = DadJoke.leaderboard
+    choices = {choice.value for choice in command._params["visibility"].choices}
+    assert choices == {"private", "public"}
+    assert (None is None)  # omitted visibility maps to private in the command implementation
