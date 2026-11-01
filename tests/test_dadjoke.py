@@ -41,6 +41,13 @@ def test_ratings_change_remove_persist_and_isolate(tmp_path):
     assert db.totals(1, jid) == (0, 1) and db.totals(2, jid) == (1, 0)
     db.db.close(); reopened = JokeRatings(tmp_path / "ratings.sqlite3"); assert reopened.totals(1, jid) == (0, 1)
 
+def test_monthly_usage_unique_duplicate_and_guild_separation(tmp_path):
+    db = JokeRatings(tmp_path / "ratings.sqlite3")
+    db.record_usage(1, 10, 100, "2026-11"); db.record_usage(1, 10, 100, "2026-11"); db.record_usage(1, 11, 101, "2026-11"); db.record_usage(2, 10, 102, "2026-11")
+    assert db.usage_summary(1, "2026-11") == (2, 2)
+    assert db.usage_summary(2, "2026-11") == (1, 1)
+    assert db.usage_summary(1, "2026-12") == (0, 0)
+
 def test_leaderboard_visibility_choices_and_private_default():
     from src.cogs.dadjoke import DadJoke
     command = DadJoke.leaderboard

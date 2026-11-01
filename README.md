@@ -392,4 +392,4 @@ Playback controls reuse the bot's current player message in each text channel wh
 
 `/dadjoke` also accepts an optional topic, for example `/dadjoke topic:halloween` or `/dadjoke topic:cats`; topic searches use the free API with local seasonal fallbacks.
 For tabletop gaming, `/dadjoke topic:dnd` (also `d&d` or `dungeons and dragons`) uses a curated local collection of family-friendly D&D jokes.
-Dad jokes include persistent per-server 😂 Funny and 🙄 Groan voting buttons; `/dadjoke-leaderboard` shows the top five groan-worthy jokes. It defaults to private; use `/dadjoke-leaderboard visibility:public` to post it in the channel. Ratings are stored locally in `~/.local/state/discord-bot/joke-ratings.sqlite3`.
+Dad jokes include persistent per-server 😂 Funny and 🙄 Groan voting buttons; `/dadjoke-leaderboard` shows the top five groan-worthy jokes plus current-month usage (UTC). It defaults to private; use `/dadjoke-leaderboard visibility:public` to post it in the channel. Ratings and usage are stored locally in `~/.local/state/discord-bot/joke-ratings.sqlite3`; ratings remain all-time while usage starts tracking after deployment each calendar month.

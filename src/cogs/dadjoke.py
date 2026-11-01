@@ -1,5 +1,6 @@
 """Free dad-joke command backed by icanhazdadjoke.com with local fallback."""
 import asyncio, random, re
+from datetime import datetime, timezone
 from urllib.parse import quote_plus
 import aiohttp
 import discord
@@ -80,6 +81,7 @@ class DadJoke(commands.Cog):
             self.last_joke = joke
         message = await interaction.followup.send(joke, view=RatingView(self, interaction.guild_id, joke, None), wait=True)
         self.ratings.record_post(interaction.guild_id, message.id, joke)
+        self.ratings.record_usage(interaction.guild_id, interaction.user.id, interaction.id, datetime.now(timezone.utc).strftime("%Y-%m"))
         await message.edit(view=RatingView(self, interaction.guild_id, joke, message.id))
 
     @app_commands.command(name="dadjoke-leaderboard", description="Show the top groan-worthy dad jokes in this server")
@@ -88,9 +90,13 @@ class DadJoke(commands.Cog):
     async def leaderboard(self, interaction, visibility: app_commands.Choice[str] | None = None):
         ephemeral = not visibility or visibility.value == "private"
         await interaction.response.defer(ephemeral=ephemeral)
+        month = datetime.now(timezone.utc).strftime("%Y-%m")
+        month_label = datetime.now(timezone.utc).strftime("%B %Y")
+        jokes_requested, unique_users = self.ratings.usage_summary(interaction.guild_id, month)
         rows = self.ratings.leaderboard(interaction.guild_id)
-        if not rows: return await interaction.followup.send("No rated dad jokes in this server yet.", ephemeral=ephemeral)
-        text = "**Dad Joke Leaderboard**\n" + "\n".join(f"**{i}.** 😂 {funny}    🙄 {groans} — {joke[:180]}" for i,(joke,groans,funny) in enumerate(rows,1))
+        stats = f"📅 {month_label}\n🎭 Jokes requested: {jokes_requested}\n👥 Unique users: {unique_users}\n\n"
+        if not rows: text = stats + "No rated dad jokes in this server yet."
+        else: text = stats + "**Dad Joke Leaderboard**\n" + "\n".join(f"**{i}.** 😂 {funny}    🙄 {groans} — {joke[:180]}" for i,(joke,groans,funny) in enumerate(rows,1))
         try:
             await interaction.followup.send(text[:1900], ephemeral=ephemeral)
         except discord.Forbidden:
