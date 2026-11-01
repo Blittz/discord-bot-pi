@@ -3,6 +3,7 @@ import asyncio, random, re
 from urllib.parse import quote_plus
 import aiohttp
 import discord
+from src.dnd_jokes import DND_JOKES
 from discord.ext import commands
 from discord import app_commands
 API_URL = "https://icanhazdadjoke.com/"
@@ -13,7 +14,7 @@ THEMED_FALLBACKS = {
  "halloween": ("Why did the vampire read the newspaper? He heard it had great circulation.", "I dressed up as a skeleton for Halloween, but I had no body to go with."),
  "christmas": ("What do snowmen eat for breakfast? Frosted Flakes.", "Why was the Christmas tree bad at knitting? It kept dropping its needles."),
 }
-ALIASES = {"haloween": "halloween", "hallowen": "halloween", "xmas": "christmas"}
+ALIASES = {"haloween": "halloween", "hallowen": "halloween", "xmas": "christmas", "dnd": "dnd", "d&d": "dnd", "dungeons and dragons": "dnd", "dungeons & dragons": "dnd"}
 def clean_joke(text):
     return re.sub(r"<@!?\d+>", "@\u200b", str(text)).replace("`", "'").strip()[:1900] or "I forgot the punchline, but it was hilarious in rehearsal."
 def normalize_topic(topic):
@@ -61,10 +62,16 @@ class DadJoke(commands.Cog):
         await interaction.response.defer(thinking=True)
         async with self.lock:
             normalized = normalize_topic(topic) if topic else None
-            try:
-                joke = await (search_dad_joke(normalized) if normalized else fetch_dad_joke())
-            except Exception:
+            if normalized == "dnd":
+                choices = [j for j in DND_JOKES if j != self.last_joke] or DND_JOKES
+                joke = random.choice(choices)
+            else:
                 joke = None
+            if joke is None:
+                try:
+                    joke = await (search_dad_joke(normalized) if normalized else fetch_dad_joke())
+                except Exception:
+                    joke = None
             if not joke and normalized in THEMED_FALLBACKS:
                 choices = [j for j in THEMED_FALLBACKS[normalized] if j != self.last_joke] or THEMED_FALLBACKS[normalized]; joke = random.choice(choices)
             if not joke and normalized: joke = f"I couldn't find a dad joke about {clean_joke(normalized)}. Try another topic."
