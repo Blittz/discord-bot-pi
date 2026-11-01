@@ -37,7 +37,7 @@ def friendly_audio_name(path: Path) -> str:
     except (OSError, ValueError, subprocess.SubprocessError): pass
     name = name or metadata.get("display_name") or metadata.get("original_filename")
     name = str(name or path.stem).rsplit(".", 1)[0].strip() or "Audio Recording"
-    name = discord.utils.escape_mentions(name).replace("`", "'")
+    name = discord.utils.escape_mentions(name).replace("@", "@\u200b").replace("`", "'")
     return name[:200] or "Audio Recording"
 
 @dataclass
