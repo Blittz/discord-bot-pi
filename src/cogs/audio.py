@@ -179,7 +179,7 @@ class SelectedAudioView(discord.ui.View):
     @discord.ui.button(label="▶️ Play", style=discord.ButtonStyle.primary)
     async def play(self, interaction, button):
         await interaction.response.defer(ephemeral=True)
-        try: await self.cog.start_playback(interaction, validate_audio_path(self.path), self.requester, message=interaction.message)
+        try: await self.cog.start_playback(interaction, validate_audio_path(self.path), self.requester, control_interaction=interaction)
         except (OSError, ValueError): await interaction.followup.send("That recording is no longer available.", ephemeral=True)
     @discord.ui.button(label="🗑️ Delete", style=discord.ButtonStyle.danger)
     async def delete(self, interaction, button):
@@ -390,8 +390,13 @@ class PlaybackView(discord.ui.View):
         await getattr(self.cog, method)(self.guild_id, self.token, *args)
         state = self.cog.sessions.get(self.guild_id)
         if state and state.token == self.token:
-            if not await self.cog._edit_player(interaction.channel_id, state.display(), self.cog.control_view(self.guild_id), interaction.message):
-                await interaction.followup.send(state.display(), view=self.cog.control_view(self.guild_id), ephemeral=True)
+            try:
+                edited = await interaction.edit_original_response(content=state.display(), view=self.cog.control_view(self.guild_id))
+                self.cog.player_messages[interaction.channel_id] = edited
+            except Exception:
+                log.warning("Playback control message edit failed", exc_info=True)
+                if not await self.cog._edit_player(interaction.channel_id, state.display(), self.cog.control_view(self.guild_id), interaction.message):
+                    await interaction.followup.send(state.display(), view=self.cog.control_view(self.guild_id), ephemeral=True)
 
     @discord.ui.button(label="Pause", style=discord.ButtonStyle.secondary, row=0)
     async def toggle(self, interaction, button):
@@ -542,7 +547,7 @@ class Audio(commands.Cog):
             shutil.rmtree(temp_dir, ignore_errors=True)
             await interaction.followup.send("That upload could not be decoded as audio.", ephemeral=True)
 
-    async def start_playback(self, interaction, path: Path, requester, cleanup: Path | None = None, message=None):
+    async def start_playback(self, interaction, path: Path, requester, cleanup: Path | None = None, message=None, control_interaction=None):
         guild = interaction.guild
         if not guild or guild.id in self.sessions:
             await interaction.followup.send("Playback is already active in this server.", ephemeral=True); return
@@ -573,7 +578,10 @@ class Audio(commands.Cog):
             # UI updates are deliberately isolated from the audio lifecycle. A stale
             # ephemeral interaction must never stop a voice client that is already playing.
             try:
-                if message:
+                if control_interaction:
+                    edited = await control_interaction.edit_original_response(content=content, view=PlaybackView(self, guild.id, requester.id))
+                    self.player_messages[interaction.channel_id] = edited
+                elif message:
                     await message.edit(content=content, view=PlaybackView(self, guild.id, requester.id))
                     self.player_messages[interaction.channel_id] = message
                 else:
@@ -581,6 +589,11 @@ class Audio(commands.Cog):
                     self.player_messages[interaction.channel_id] = message
             except Exception:
                 log.warning("Player message update failed after playback started", exc_info=True)
+                try:
+                    fallback = await interaction.followup.send(content, view=PlaybackView(self, guild.id, requester.id), ephemeral=True, wait=True)
+                    self.player_messages[interaction.channel_id] = fallback
+                except Exception:
+                    log.warning("Playback control fallback message failed", exc_info=True)
             error = await done
             if error: log.error("Audio playback failed: %s", type(error).__name__)
         except Exception as error:
