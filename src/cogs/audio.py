@@ -98,8 +98,20 @@ class AudioView(discord.ui.View):
 
 class PlaybackView(discord.ui.View):
     def __init__(self, cog, guild_id, requester_id):
-        super().__init__(timeout=120)
+        # Playback can last for hours; the old 120-second timeout disabled Stop.
+        super().__init__(timeout=None)
         self.cog, self.guild_id, self.requester_id = cog, guild_id, requester_id
+        self.token = cog.sessions.get(guild_id, (None, requester_id, None))[2]
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        session = self.cog.sessions.get(self.guild_id)
+        if not session or session[2] != self.token:
+            await interaction.response.send_message("This playback session has ended.", ephemeral=True)
+            return False
+        if interaction.user.id != session[1] and not getattr(interaction.user.guild_permissions, "administrator", False):
+            await interaction.response.send_message("Only the requester or an administrator can control playback.", ephemeral=True)
+            return False
+        return True
 
     @discord.ui.button(label="Stop", style=discord.ButtonStyle.danger)
     async def stop(self, interaction, button):
@@ -108,8 +120,8 @@ class PlaybackView(discord.ui.View):
             await interaction.response.send_message("Only the requester or an administrator can stop playback.", ephemeral=True)
             return
         session = self.cog.sessions.get(self.guild_id)
-        if session:
-            vc, _ = session
+        if session and session[2] == self.token:
+            vc, _, _ = session
             if vc.is_playing(): vc.stop()
             if vc.is_connected(): await vc.disconnect()
         await interaction.response.edit_message(content="⏹️ Playback stopped.", view=None)
@@ -118,7 +130,23 @@ class PlaybackView(discord.ui.View):
 class Audio(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        self.sessions: dict[int, tuple[discord.VoiceClient, int]] = {}
+        # guild_id -> (voice client, requester user id, immutable session token)
+        self.sessions: dict[int, tuple[discord.VoiceClient, int, str]] = {}
+
+    async def _stop_authorized(self, interaction, session):
+        return interaction.user.id == session[1] or getattr(interaction.user.guild_permissions, "administrator", False)
+
+    @app_commands.command(name="stop", description="Stop audio playback in this server")
+    async def stop(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        session = self.sessions.get(interaction.guild_id)
+        if not session: return await interaction.followup.send("No audio is playing.", ephemeral=True)
+        if not await self._stop_authorized(interaction, session): return await interaction.followup.send("Only the requester or an administrator can stop playback.", ephemeral=True)
+        vc, _, token = session
+        self.sessions.pop(interaction.guild_id, None)
+        if vc.is_playing() or vc.is_paused(): vc.stop()
+        if vc.is_connected(): await vc.disconnect(force=True)
+        await interaction.followup.send("Playback stopped.", ephemeral=True)
 
     @app_commands.command(name="play", description="Play a saved audio file or an uploaded audio attachment")
     @app_commands.describe(audio="Optional audio attachment to play once")
@@ -169,7 +197,8 @@ class Audio(commands.Cog):
             vc = await asyncio.wait_for(channel.connect(timeout=10, reconnect=False), timeout=15)
             if not vc.is_connected():
                 raise discord.ClientException("Voice connection did not become ready")
-            self.sessions[guild.id] = (vc, requester.id)
+            token = uuid.uuid4().hex
+            self.sessions[guild.id] = (vc, requester.id, token)
             source = discord.FFmpegPCMAudio(str(path))
             done = asyncio.get_running_loop().create_future()
             def after(error):
