@@ -180,7 +180,9 @@ class PlaybackView(discord.ui.View):
         if session and session.token == self.token:
             vc = session.vc
             if vc.is_playing(): vc.stop()
+            if session.source: session.source.cleanup()
             if vc.is_connected(): await vc.disconnect()
+            self.cog.sessions.pop(self.guild_id, None)
         await interaction.response.edit_message(content="⏹️ Playback stopped.", view=None)
 
 
