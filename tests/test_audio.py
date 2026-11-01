@@ -1,6 +1,6 @@
 from pathlib import Path
 import pytest
-from src.cogs.audio import Audio, AudioView, DeleteConfirmView, LibraryView, PlaybackState, PlaybackView, UploadChoiceView, list_audio_files, validate_audio_path
+from src.cogs.audio import Audio, AudioView, DeleteConfirmView, LibraryView, PlaybackState, PlaybackView, UploadChoiceView, friendly_audio_name, list_audio_files, validate_audio_path
 from src.audio_storage import AudioStorage
 
 def test_list_audio_files_filters_and_sorts(tmp_path: Path):
@@ -72,3 +72,14 @@ def test_all_audio_views_initialize_with_saved_file(tmp_path):
     assert {getattr(item, "label", "") for item in library_view.children} == {"My Audio", "Channel Audio", "Server Audio"}
     assert isinstance(DeleteConfirmView(cog, User(), saved), DeleteConfirmView)
     assert isinstance(UploadChoiceView(cog, User(), tmp_path, saved, "stored.mp3"), UploadChoiceView)
+
+def test_friendly_name_prefers_metadata_and_sanitizes(tmp_path):
+    path = tmp_path / "random-123.mp3"; path.write_bytes(b"x")
+    path.with_suffix(".mp3.json").write_text('{"display_name":"<@123>  Song `Name`"}', encoding="utf-8")
+    name = friendly_audio_name(path)
+    assert "@123" not in name and "`" not in name and "Song" in name
+
+def test_friendly_name_falls_back_to_original_filename(tmp_path):
+    path = tmp_path / "id123.mp3"; path.write_bytes(b"x")
+    path.with_suffix(".mp3.json").write_text('{"original_filename":"My Unicode Song.mp3"}', encoding="utf-8")
+    assert friendly_audio_name(path) == "My Unicode Song"

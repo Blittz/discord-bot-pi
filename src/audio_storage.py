@@ -37,7 +37,7 @@ class AudioStorage:
         path = directory / f"{uuid.uuid4().hex}{suffix}"
         return path, self.metadata_path(path)
     def write_metadata(self, path: Path, display_name: str, owner_id: int, scope: str, channel_id=None):
-        self.metadata_path(path).write_text(json.dumps({"display_name": display_name[:200], "owner_id": int(owner_id), "scope": scope, "channel_id": channel_id}), encoding="utf-8")
+        self.metadata_path(path).write_text(json.dumps({"display_name": display_name[:200], "original_filename": display_name[:255], "owner_id": int(owner_id), "scope": scope, "channel_id": channel_id}), encoding="utf-8")
 
     def save_file(self, source: Path, guild_id: int, scope: str, display_name: str, owner_id: int, channel_id=None, personal_quota=MAX_USER_BYTES, server_quota=MAX_SERVER_BYTES) -> Path:
         size = source.stat().st_size

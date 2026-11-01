@@ -1,7 +1,9 @@
 """Safe local audio playback for Discord voice channels."""
 import asyncio
 import logging
+import json
 import os
+import subprocess
 import shutil
 import tempfile
 import uuid
@@ -18,6 +20,25 @@ AUDIO_DIR = Path(os.getenv("AUDIO_DIR", "~/discord-audio")).expanduser().resolve
 MAX_UPLOAD_BYTES = int(float(os.getenv("AUDIO_MAX_UPLOAD_MB", "125")) * 1024 * 1024)
 MAX_AUDIO_SECONDS = int(os.getenv("AUDIO_MAX_DURATION_SECONDS", "7200"))
 EXTENSIONS = {".mp3", ".wav", ".ogg", ".flac", ".m4a"}
+
+def friendly_audio_name(path: Path) -> str:
+    """Resolve display text from stored metadata, then embedded tags, then filename."""
+    metadata = {}
+    try: metadata = json.loads(path.with_suffix(path.suffix + ".json").read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError): pass
+    name = None
+    try:
+            result = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format_tags=artist,title", "-of", "json", str(path)], capture_output=True, text=True, timeout=3, check=False)
+            tags = json.loads(result.stdout or "{}").get("format", {}).get("tags", {})
+            artist = tags.get("artist") or tags.get("ARTIST"); title = tags.get("title") or tags.get("TITLE")
+            if artist and title: name = f"{artist} – {title}"
+            elif title: name = title
+            elif artist: name = artist
+    except (OSError, ValueError, subprocess.SubprocessError): pass
+    name = name or metadata.get("display_name") or metadata.get("original_filename")
+    name = str(name or path.stem).rsplit(".", 1)[0].strip() or "Audio Recording"
+    name = discord.utils.escape_mentions(name).replace("`", "'")
+    return name[:200] or "Audio Recording"
 
 @dataclass
 class PlaybackState:
@@ -94,7 +115,7 @@ class AudioView(discord.ui.View):
         self.clear_items()
         start = self.page * 25
         select = discord.ui.Select(placeholder="Choose a saved audio file", options=[
-            discord.SelectOption(label=p.name[:100], value=str(i), description="Play this file")
+            discord.SelectOption(label=friendly_audio_name(p)[:100], value=str(i), description="Play this file")
             for i, p in enumerate(self.files[start:start + 25], start=start)
         ])
         select.callback = self._selected
@@ -243,7 +264,7 @@ class SaveConfirmView(discord.ui.View):
                 return await interaction.followup.send("You are no longer authorized to save to that shared library.", ephemeral=True)
             async with self.cog.storage_lock:
                 saved = await asyncio.to_thread(self.cog.storage.save_file, self.path, interaction.guild_id, self.scope, self.display_name, self.requester.id, self.channel_id)
-            await interaction.followup.send(f"Saved **{self.display_name}** to **{self.scope.title()} Audio**.", ephemeral=True)
+            await interaction.followup.send(f"Saved **{friendly_audio_name(saved)}** to **{self.scope.title()} Audio**.", ephemeral=True)
             await interaction.edit_original_response(view=None)
         except (OSError, ValueError) as error:
             await interaction.followup.send(str(error), ephemeral=True)
@@ -403,7 +424,7 @@ class Audio(commands.Cog):
             def after(error):
                 if not done.done(): done.set_result(error)
             vc.play(source, after=after)
-            await interaction.followup.send(f"**Now Playing:**\n{path.name}\n\n{state.display()}", view=PlaybackView(self, guild.id, requester.id), ephemeral=True)
+            await interaction.followup.send(f"**Now Playing:**\n{friendly_audio_name(path)}\n\n{state.display()}", view=PlaybackView(self, guild.id, requester.id), ephemeral=True)
             error = await done
             if error: log.error("Audio playback failed: %s", type(error).__name__)
         except Exception:
