@@ -389,3 +389,5 @@ For files too large to upload through Discord, copy them by SFTP into `/home/bli
 ### Player message reuse
 
 Playback controls reuse the bot's current player message in each text channel when Discord permits editing it. Start, pause/resume, volume, stop, and natural completion update that message; private library, upload, and deletion workflows remain ephemeral. If a message is stale or deleted, the bot falls back to a new response.
+
+`/dadjoke` also accepts an optional topic, for example `/dadjoke topic:halloween` or `/dadjoke topic:cats`; topic searches use the free API with local seasonal fallbacks.

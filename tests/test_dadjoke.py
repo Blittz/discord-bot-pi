@@ -1,5 +1,5 @@
 import asyncio
-from src.cogs.dadjoke import clean_joke, FALLBACK_JOKES
+from src.cogs.dadjoke import clean_joke, FALLBACK_JOKES, normalize_topic, THEMED_FALLBACKS
 
 def test_clean_joke_sanitizes_mentions_and_formatting():
     assert "@123" not in clean_joke("Hi <@123> `there`")
@@ -8,6 +8,11 @@ def test_clean_joke_sanitizes_mentions_and_formatting():
 def test_fallback_collection_is_local_and_nonempty():
     assert FALLBACK_JOKES
     assert all(isinstance(j, str) and j for j in FALLBACK_JOKES)
+
+def test_topic_aliases_and_themed_fallbacks():
+    assert normalize_topic("haloween") == "halloween"
+    assert normalize_topic("xmas") == "christmas"
+    assert THEMED_FALLBACKS["halloween"]
 
 def test_fetch_malformed_response_fails():
     from src.cogs.dadjoke import fetch_dad_joke
