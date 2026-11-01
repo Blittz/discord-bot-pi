@@ -362,7 +362,7 @@ finished. An uploaded file can be supplied through `/play`'s optional
 
 ### Playback controls
 
-The private Now Playing and playback status responses provide a single Pause or Resume button, Restart, Stop, and Volume controls. `/volume` accepts any whole-number percentage from 1% through 100% (default 100%). `/stop` remains available if a component message is unavailable.
+The private Now Playing and playback status responses provide a single Pause or Resume button, Stop, and Volume controls. `/volume` accepts any whole-number percentage from 1% through 100% (default 100%). `/stop` remains available if a component message is unavailable.
 
 ### Managed audio libraries
 

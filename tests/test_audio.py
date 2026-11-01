@@ -24,7 +24,8 @@ def test_playback_controls_are_simplified_and_session_bound():
     cog.sessions[7] = state
     view = PlaybackView(cog, 7, 42)
     labels = {getattr(item, "label", "") for item in view.children}
-    assert {"Pause", "Restart", "Volume", "Stop"}.issubset(labels)
+    assert {"Pause", "Volume", "Stop"}.issubset(labels)
+    assert "Restart" not in labels
     assert not {"⏪ 30s", "30s ⏩", "Forward", "Rewind"} & labels
     assert view.timeout is None
 

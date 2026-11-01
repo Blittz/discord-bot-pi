@@ -343,9 +343,6 @@ class PlaybackView(discord.ui.View):
         state = self.cog.sessions.get(self.guild_id)
         await self._control(interaction, "resume_playback" if state and state.paused else "pause_playback")
 
-    @discord.ui.button(label="Restart", style=discord.ButtonStyle.secondary, row=0)
-    async def restart(self, interaction, button): await self._control(interaction, "restart_playback")
-
     @discord.ui.button(label="Volume", style=discord.ButtonStyle.primary, row=2)
     async def volume(self, interaction, button):
         await interaction.response.send_message("Use `/volume` with any whole-number percentage from 1 to 100.", ephemeral=True)
@@ -527,15 +524,6 @@ class Audio(commands.Cog):
             async with state.operation_lock:
                 if state.vc.is_paused(): state.vc.resume(); state.paused = False; await self._presence_state(state)
 
-    async def restart_playback(self, guild_id, token):
-        state = await self._state(guild_id, token)
-        if state:
-            async with state.operation_lock:
-                if state.vc.is_playing() or state.vc.is_paused(): state.vc.stop()
-                if state.source: state.source.cleanup()
-                state.source = discord.PCMVolumeTransformer(discord.FFmpegPCMAudio(str(state.path)), volume=state.volume)
-                state.paused = False
-                state.vc.play(state.source)
                 await self._presence_state(state)
 
     def control_view(self, guild_id):
