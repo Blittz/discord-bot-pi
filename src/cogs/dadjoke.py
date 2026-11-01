@@ -4,6 +4,7 @@ from urllib.parse import quote_plus
 import aiohttp
 import discord
 from src.dnd_jokes import DND_JOKES
+from src.joke_ratings import JokeRatings
 from discord.ext import commands
 from discord import app_commands
 API_URL = "https://icanhazdadjoke.com/"
@@ -54,7 +55,7 @@ async def search_dad_joke(topic, session=None):
     finally:
         if own: await session.close()
 class DadJoke(commands.Cog):
-    def __init__(self, bot): self.bot, self.last_joke, self.lock = bot, None, asyncio.Lock()
+    def __init__(self, bot): self.bot, self.last_joke, self.lock, self.ratings = bot, None, asyncio.Lock(), JokeRatings()
     @app_commands.command(name="dadjoke", description="Get a free, family-friendly dad joke")
     @app_commands.describe(topic="Optional topic, such as cats, Halloween, or Christmas")
     @app_commands.checks.cooldown(3, 10.0)
@@ -77,5 +78,31 @@ class DadJoke(commands.Cog):
             if not joke and normalized: joke = f"I couldn't find a dad joke about {clean_joke(normalized)}. Try another topic."
             if not joke: joke = random.choice([j for j in FALLBACK_JOKES if j != self.last_joke] or FALLBACK_JOKES)
             self.last_joke = joke
-        await interaction.followup.send(joke)
-async def setup(bot): await bot.add_cog(DadJoke(bot))
+        message = await interaction.followup.send(joke, view=RatingView(self, interaction.guild_id, joke, None), wait=True)
+        self.ratings.record_post(interaction.guild_id, message.id, joke)
+        await message.edit(view=RatingView(self, interaction.guild_id, joke, message.id))
+
+    @app_commands.command(name="dadjoke-leaderboard", description="Show the top groan-worthy dad jokes in this server")
+    async def leaderboard(self, interaction):
+        rows = self.ratings.leaderboard(interaction.guild_id)
+        if not rows: return await interaction.response.send_message("No rated dad jokes in this server yet.", ephemeral=True)
+        text = "**Dad Joke Leaderboard**\n" + "\n".join(f"**{i}.** 🙄 {groans} · 😂 {funny} — {joke[:180]}" for i,(joke,groans,funny) in enumerate(rows,1))
+        await interaction.response.send_message(text[:1900], ephemeral=True)
+
+class RatingView(discord.ui.View):
+    def __init__(self, cog, guild_id, joke, message_id):
+        super().__init__(timeout=None); self.cog, self.guild_id, self.joke_id, self.message_id = cog, guild_id, joke if len(joke) == 32 and all(c in '0123456789abcdef' for c in joke) else cog.ratings.joke_id(joke), message_id
+        self._build()
+    def _build(self):
+        funny, groan = self.cog.ratings.totals(self.guild_id, self.joke_id)
+        f = discord.ui.Button(label=f"😂 Funny ({funny})", style=discord.ButtonStyle.success, custom_id=f"joke:funny:{self.joke_id}")
+        g = discord.ui.Button(label=f"🙄 Groan ({groan})", style=discord.ButtonStyle.secondary, custom_id=f"joke:groan:{self.joke_id}")
+        f.callback=lambda i: self._vote(i,"funny"); g.callback=lambda i: self._vote(i,"groan"); self.add_item(f); self.add_item(g)
+    async def _vote(self, interaction, vote):
+        await interaction.response.defer()
+        self.cog.ratings.vote(self.guild_id, self.joke_id, interaction.user.id, vote); self.clear_items(); self._build()
+        try: await interaction.edit_original_response(view=self)
+        except discord.HTTPException: pass
+async def setup(bot):
+    cog = DadJoke(bot); await bot.add_cog(cog)
+    for guild_id, message_id, joke_id in cog.ratings.posts(): bot.add_view(RatingView(cog, guild_id, joke_id, message_id), message_id=message_id)

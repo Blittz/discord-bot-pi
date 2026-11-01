@@ -1,6 +1,7 @@
 import asyncio
 from src.cogs.dadjoke import clean_joke, FALLBACK_JOKES, normalize_topic, THEMED_FALLBACKS
 from src.dnd_jokes import DND_JOKES
+from src.joke_ratings import JokeRatings
 
 def test_clean_joke_sanitizes_mentions_and_formatting():
     assert "@123" not in clean_joke("Hi <@123> `there`")
@@ -30,3 +31,12 @@ def test_fetch_malformed_response_fails():
     try: asyncio.run(fetch_dad_joke(Session()))
     except ValueError: return
     raise AssertionError("malformed response was accepted")
+
+def test_ratings_change_remove_persist_and_isolate(tmp_path):
+    db = JokeRatings(tmp_path / "ratings.sqlite3"); jid = db.record_post(1, 10, "A joke")
+    assert db.vote(1, jid, 4, "funny") == (1, 0)
+    assert db.vote(1, jid, 4, "groan") == (0, 1)
+    assert db.vote(1, jid, 4, "groan") == (0, 0)
+    db.vote(1, jid, 4, "groan"); db.vote(2, jid, 4, "funny")
+    assert db.totals(1, jid) == (0, 1) and db.totals(2, jid) == (1, 0)
+    db.db.close(); reopened = JokeRatings(tmp_path / "ratings.sqlite3"); assert reopened.totals(1, jid) == (0, 1)
