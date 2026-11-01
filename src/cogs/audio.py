@@ -15,7 +15,7 @@ from src.audio_storage import AudioStorage
 
 log = logging.getLogger(__name__)
 AUDIO_DIR = Path(os.getenv("AUDIO_DIR", "~/discord-audio")).expanduser().resolve()
-MAX_UPLOAD_BYTES = int(float(os.getenv("AUDIO_MAX_UPLOAD_MB", "25")) * 1024 * 1024)
+MAX_UPLOAD_BYTES = int(float(os.getenv("AUDIO_MAX_UPLOAD_MB", "125")) * 1024 * 1024)
 MAX_AUDIO_SECONDS = int(os.getenv("AUDIO_MAX_DURATION_SECONDS", "7200"))
 EXTENSIONS = {".mp3", ".wav", ".ogg", ".flac", ".m4a"}
 
@@ -81,6 +81,7 @@ class AudioView(discord.ui.View):
     def __init__(self, cog, requester: discord.Member, files: list[Path]):
         super().__init__(timeout=120)
         self.cog, self.requester, self.files, self.page = cog, requester, files, 0
+        self.selected_path = None
         self._refresh_items()
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
@@ -112,7 +113,38 @@ class AudioView(discord.ui.View):
     async def _selected(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
         path = validate_audio_path(self.files[int(interaction.data["values"][0])])
+        self.selected_path = path
         await self.cog.start_playback(interaction, path, self.requester)
+
+    @discord.ui.button(label="Delete Selected", style=discord.ButtonStyle.danger, row=2)
+    async def delete_selected(self, interaction, button):
+        if not self.selected_path:
+            return await interaction.response.send_message("Select a file first, then choose Delete Selected.", ephemeral=True)
+        await interaction.response.send_message("Confirm deletion? This cannot be undone.", view=DeleteConfirmView(self.cog, self.requester, self.selected_path), ephemeral=True)
+
+class DeleteConfirmView(discord.ui.View):
+    def __init__(self, cog, requester, path):
+        super().__init__(timeout=60); self.cog, self.requester, self.path = cog, requester, path
+    @discord.ui.button(label="Confirm Delete", style=discord.ButtonStyle.danger)
+    async def confirm(self, interaction, button):
+        await interaction.response.defer(ephemeral=True)
+        is_admin = getattr(interaction.user.guild_permissions, "administrator", False)
+        owner_id = None
+        try:
+            import json
+            owner_id = json.loads(self.cog.storage.metadata_path(self.path).read_text(encoding="utf-8")).get("owner_id")
+            scope = json.loads(self.cog.storage.metadata_path(self.path).read_text(encoding="utf-8")).get("scope")
+        except (OSError, ValueError, TypeError):
+            scope = None
+        if (scope != "personal" and not is_admin) or (scope == "personal" and not is_admin and interaction.user.id != owner_id):
+            return await interaction.followup.send("You are not allowed to delete this file.", ephemeral=True)
+        try:
+            await asyncio.to_thread(self.cog.storage.delete_file, self.path, interaction.guild_id)
+            await interaction.followup.send("Audio deleted.", ephemeral=True)
+        except (OSError, ValueError):
+            await interaction.followup.send("That file is no longer available or cannot be deleted.", ephemeral=True)
+    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary)
+    async def cancel(self, interaction, button): await interaction.response.edit_message(content="Deletion cancelled.", view=None)
 
     async def _previous(self, interaction):
         self.page -= 1; self._refresh_items(); await interaction.response.edit_message(view=self)
@@ -153,6 +185,41 @@ class LibraryView(discord.ui.View):
     async def channel(self, interaction, button): await self._scope(interaction, "channel")
     @discord.ui.button(label="Server Audio", style=discord.ButtonStyle.secondary)
     async def server(self, interaction, button): await self._scope(interaction, "server")
+
+class UploadChoiceView(discord.ui.View):
+    def __init__(self, cog, requester, temp_dir, path, display_name):
+        super().__init__(timeout=300); self.cog, self.requester, self.temp_dir, self.path, self.display_name = cog, requester, temp_dir, path, display_name
+    async def interaction_check(self, interaction):
+        if interaction.user.id != self.requester.id and not getattr(interaction.user.guild_permissions, "administrator", False):
+            await interaction.response.send_message("Only the uploader or an administrator can choose how to save this file.", ephemeral=True); return False
+        return True
+    async def _choose(self, interaction, scope=None):
+        await interaction.response.defer(ephemeral=True)
+        try:
+            if scope:
+                if scope in {"channel", "server"} and not getattr(interaction.user.guild_permissions, "administrator", False):
+                    return await interaction.followup.send("Only server administrators can save shared audio.", ephemeral=True)
+                channel_id = interaction.channel_id if scope == "channel" else None
+                async with self.cog.storage_lock:
+                    saved = await asyncio.to_thread(self.cog.storage.save_file, self.path, interaction.guild_id, scope, self.display_name, self.requester.id, channel_id)
+                await interaction.followup.send(f"Saved **{self.display_name}** to {scope} audio.", ephemeral=True)
+                if scope == "personal" or scope in {"channel", "server"}:
+                    await self.cog.start_playback(interaction, saved, self.requester)
+            else:
+                await self.cog.start_playback(interaction, self.path, self.requester, cleanup=self.temp_dir)
+                return
+        except ValueError as error:
+            await interaction.followup.send(str(error), ephemeral=True)
+        finally:
+            if scope: shutil.rmtree(self.temp_dir, ignore_errors=True)
+    @discord.ui.button(label="Play Once", style=discord.ButtonStyle.primary)
+    async def play_once(self, interaction, button): await self._choose(interaction)
+    @discord.ui.button(label="Save to My Audio", style=discord.ButtonStyle.secondary)
+    async def save_personal(self, interaction, button): await self._choose(interaction, "personal")
+    @discord.ui.button(label="Save to Channel Audio", style=discord.ButtonStyle.secondary)
+    async def save_channel(self, interaction, button): await self._choose(interaction, "channel")
+    @discord.ui.button(label="Save to Server Audio", style=discord.ButtonStyle.secondary)
+    async def save_server(self, interaction, button): await self._choose(interaction, "server")
 
 
 class PlaybackView(discord.ui.View):
@@ -215,6 +282,7 @@ class Audio(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.storage = AudioStorage(AUDIO_DIR)
+        self.storage_lock = asyncio.Lock()
         # guild_id -> (voice client, requester user id, immutable session token)
         self.sessions: dict[int, PlaybackState] = {}
 
@@ -269,7 +337,7 @@ class Audio(commands.Cog):
         try:
             await attachment.save(path)
             await validate_audio_file(path)
-            await self.start_playback(interaction, path, member, cleanup=temp_dir)
+            await interaction.followup.send(f"Upload validated: **{attachment.filename}**. Choose what to do:", view=UploadChoiceView(self, member, temp_dir, path, attachment.filename), ephemeral=True)
         except Exception:
             shutil.rmtree(temp_dir, ignore_errors=True)
             await interaction.followup.send("That upload could not be decoded as audio.", ephemeral=True)

@@ -49,3 +49,10 @@ def test_storage_scopes_are_id_based_and_isolated(tmp_path):
     storage.write_metadata(personal, "friendly name.mp3", 20, "personal")
     assert storage.list_files(10, "personal", owner_id=20) == [personal]
     assert storage.list_files(11, "personal", owner_id=20) == []
+
+def test_storage_save_enforces_quotas_and_metadata(tmp_path):
+    storage = AudioStorage(tmp_path); source = tmp_path / "upload.mp3"; source.write_bytes(b"12345")
+    saved = storage.save_file(source, 1, "personal", "voice.mp3", 9, personal_quota=5, server_quota=100)
+    assert saved.exists() and storage.metadata_path(saved).exists()
+    source.write_bytes(b"123456")
+    with pytest.raises(ValueError): storage.save_file(source, 1, "personal", "again.mp3", 9, personal_quota=5, server_quota=100)

@@ -38,3 +38,24 @@ class AudioStorage:
         return path, self.metadata_path(path)
     def write_metadata(self, path: Path, display_name: str, owner_id: int, scope: str, channel_id=None):
         self.metadata_path(path).write_text(json.dumps({"display_name": display_name[:200], "owner_id": int(owner_id), "scope": scope, "channel_id": channel_id}), encoding="utf-8")
+
+    def save_file(self, source: Path, guild_id: int, scope: str, display_name: str, owner_id: int, channel_id=None, personal_quota=MAX_USER_BYTES, server_quota=MAX_SERVER_BYTES) -> Path:
+        size = source.stat().st_size
+        if size > server_quota or self.server_bytes(guild_id) + size > server_quota:
+            raise ValueError("This server's audio storage quota would be exceeded.")
+        if scope == "personal" and self.personal_bytes(guild_id, owner_id) + size > personal_quota:
+            raise ValueError("Your personal audio storage quota would be exceeded.")
+        destination, metadata = self.reserve_path(guild_id, scope, display_name, owner_id, channel_id)
+        partial = destination.with_suffix(destination.suffix + ".partial")
+        try:
+            partial.write_bytes(source.read_bytes())
+            partial.replace(destination)
+            self.write_metadata(destination, display_name, owner_id, scope, channel_id)
+            return destination
+        except Exception:
+            partial.unlink(missing_ok=True); destination.unlink(missing_ok=True); metadata.unlink(missing_ok=True); raise
+
+    def delete_file(self, path: Path, guild_id: int) -> None:
+        path = path.absolute(); root = (self.root / "servers" / str(int(guild_id))).resolve()
+        if root not in path.resolve().parents or path.is_symlink() or not path.is_file(): raise ValueError("Invalid managed audio file.")
+        path.unlink(); self.metadata_path(path).unlink(missing_ok=True)
