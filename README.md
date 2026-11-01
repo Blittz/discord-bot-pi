@@ -22,6 +22,16 @@ Version **2.1.0** introduces a clean **cog-based architecture** with **slash com
 * `/dadjoke` – Random dad joke about gaming or dogs (ChatGPT)
 * `/sync` – Resync commands (owner only)
 
+* **Audio Player**
+
+* `/play` – Browse personal, voice-channel, and server audio libraries; play saved recordings or upload new audio
+* `/stop` – Stop current playback
+* `/volume` – Set playback volume from 1–100%
+* `/importaudio` – Administrator-only import of SFTP-transferred audio files
+* Supports MP3, WAV, OGG, FLAC, and M4A, with friendly artist/title names and Discord **Playing** activity
+* Pause/Resume/Stop controls, secure scoped libraries, and administrator deletion
+* SFTP imports support large recordings that exceed Discord upload limits
+
 * **Runs 24/7** via `systemd` on Raspberry Pi
 
 * **Automatic nightly updates** (via cron + update script)
