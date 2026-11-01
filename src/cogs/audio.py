@@ -189,6 +189,9 @@ class LibraryView(discord.ui.View):
 class UploadChoiceView(discord.ui.View):
     def __init__(self, cog, requester, temp_dir, path, display_name):
         super().__init__(timeout=300); self.cog, self.requester, self.temp_dir, self.path, self.display_name = cog, requester, temp_dir, path, display_name
+        if not getattr(requester.guild_permissions, "administrator", False):
+            for child in self.children:
+                if getattr(child, "label", "") in {"Save to Channel Audio", "Save to Server Audio"}: child.disabled = True
     async def interaction_check(self, interaction):
         if interaction.user.id != self.requester.id and not getattr(interaction.user.guild_permissions, "administrator", False):
             await interaction.response.send_message("Only the uploader or an administrator can choose how to save this file.", ephemeral=True); return False
@@ -200,18 +203,22 @@ class UploadChoiceView(discord.ui.View):
                 if scope in {"channel", "server"} and not getattr(interaction.user.guild_permissions, "administrator", False):
                     return await interaction.followup.send("Only server administrators can save shared audio.", ephemeral=True)
                 channel_id = interaction.channel_id if scope == "channel" else None
-                async with self.cog.storage_lock:
-                    saved = await asyncio.to_thread(self.cog.storage.save_file, self.path, interaction.guild_id, scope, self.display_name, self.requester.id, channel_id)
-                await interaction.followup.send(f"Saved **{self.display_name}** to {scope} audio.", ephemeral=True)
-                if scope == "personal" or scope in {"channel", "server"}:
-                    await self.cog.start_playback(interaction, saved, self.requester)
+                voice_name = getattr(getattr(self.requester, "voice", None), "channel", None)
+                destination = f"channel {getattr(voice_name, 'name', interaction.channel.name)}" if scope == "channel" else f"server {interaction.guild.name}" if scope == "server" else "your private My Audio library"
+                size = self.path.stat().st_size
+                await interaction.followup.send(
+                    f"**Confirm permanent save**\nFile: `{self.display_name}`\nSize: {size / 1024 / 1024:.1f} MB\nDestination: **{destination}**",
+                    view=SaveConfirmView(self.cog, self.requester, self.temp_dir, self.path, self.display_name, scope, channel_id), ephemeral=True)
+                return
             else:
                 await self.cog.start_playback(interaction, self.path, self.requester, cleanup=self.temp_dir)
                 return
-        except ValueError as error:
+        except (OSError, ValueError) as error:
+            shutil.rmtree(self.temp_dir, ignore_errors=True)
             await interaction.followup.send(str(error), ephemeral=True)
-        finally:
-            if scope: shutil.rmtree(self.temp_dir, ignore_errors=True)
+
+    async def on_timeout(self):
+        shutil.rmtree(self.temp_dir, ignore_errors=True)
     @discord.ui.button(label="Play Once", style=discord.ButtonStyle.primary)
     async def play_once(self, interaction, button): await self._choose(interaction)
     @discord.ui.button(label="Save to My Audio", style=discord.ButtonStyle.secondary)
@@ -220,6 +227,36 @@ class UploadChoiceView(discord.ui.View):
     async def save_channel(self, interaction, button): await self._choose(interaction, "channel")
     @discord.ui.button(label="Save to Server Audio", style=discord.ButtonStyle.secondary)
     async def save_server(self, interaction, button): await self._choose(interaction, "server")
+
+class SaveConfirmView(discord.ui.View):
+    def __init__(self, cog, requester, temp_dir, path, display_name, scope, channel_id):
+        super().__init__(timeout=120)
+        self.cog, self.requester, self.temp_dir, self.path = cog, requester, temp_dir, path
+        self.display_name, self.scope, self.channel_id = display_name, scope, channel_id
+
+    @discord.ui.button(label="Confirm Save", style=discord.ButtonStyle.success)
+    async def confirm(self, interaction, button):
+        await interaction.response.defer(ephemeral=True)
+        try:
+            # Recheck authorization and quota at commit time, under the save lock.
+            if self.scope in {"channel", "server"} and not getattr(interaction.user.guild_permissions, "administrator", False):
+                return await interaction.followup.send("You are no longer authorized to save to that shared library.", ephemeral=True)
+            async with self.cog.storage_lock:
+                saved = await asyncio.to_thread(self.cog.storage.save_file, self.path, interaction.guild_id, self.scope, self.display_name, self.requester.id, self.channel_id)
+            await interaction.followup.send(f"Saved **{self.display_name}** to **{self.scope.title()} Audio**.", ephemeral=True)
+            await interaction.edit_original_response(view=None)
+        except (OSError, ValueError) as error:
+            await interaction.followup.send(str(error), ephemeral=True)
+        finally:
+            shutil.rmtree(self.temp_dir, ignore_errors=True)
+
+    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary)
+    async def cancel(self, interaction, button):
+        shutil.rmtree(self.temp_dir, ignore_errors=True)
+        await interaction.response.edit_message(content="Upload cancelled; the temporary file was removed.", view=None)
+
+    async def on_timeout(self):
+        shutil.rmtree(self.temp_dir, ignore_errors=True)
 
 
 class PlaybackView(discord.ui.View):
