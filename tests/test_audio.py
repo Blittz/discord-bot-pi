@@ -93,6 +93,8 @@ def test_library_selection_exposes_play_and_delete_actions(tmp_path):
     library = AudioView(Cog(), User(), [path])
     selected = SelectedAudioView(library.cog, library.requester, path, library)
     assert {getattr(item, "label", "") for item in selected.children} == {"▶️ Play", "🗑️ Delete"}
+    rows = {item.label: item.row for item in selected.children}
+    assert rows["▶️ Play"] == 0 and rows["🗑️ Delete"] == 1
     assert selected.parent is library
 
 def test_import_directory_lists_only_direct_regular_audio_files(tmp_path, monkeypatch):

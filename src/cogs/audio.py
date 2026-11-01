@@ -195,12 +195,12 @@ class SelectedAudioView(ExpiringView):
         if interaction.user.id != self.requester.id and not getattr(interaction.user.guild_permissions, "administrator", False):
             await interaction.response.send_message("Only the requester or an administrator can manage this recording.", ephemeral=True); return False
         return True
-    @discord.ui.button(label="▶️ Play", style=discord.ButtonStyle.primary)
+    @discord.ui.button(label="▶️ Play", style=discord.ButtonStyle.primary, row=0)
     async def play(self, interaction, button):
         await interaction.response.defer(ephemeral=True)
         try: await self.cog.start_playback(interaction, validate_audio_path(self.path), self.requester, control_interaction=interaction)
         except (OSError, ValueError): await interaction.followup.send("That recording is no longer available.", ephemeral=True)
-    @discord.ui.button(label="🗑️ Delete", style=discord.ButtonStyle.danger)
+    @discord.ui.button(label="🗑️ Delete", style=discord.ButtonStyle.danger, row=1)
     async def delete(self, interaction, button):
         name = friendly_audio_name(self.path)
         try: scope = json.loads(self.cog.storage.metadata_path(self.path).read_text(encoding="utf-8")).get("scope", "audio")
