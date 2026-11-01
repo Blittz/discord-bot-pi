@@ -1,4 +1,4 @@
-import pytest
+import asyncio
 from src.cogs.dadjoke import clean_joke, FALLBACK_JOKES
 
 def test_clean_joke_sanitizes_mentions_and_formatting():
@@ -9,8 +9,7 @@ def test_fallback_collection_is_local_and_nonempty():
     assert FALLBACK_JOKES
     assert all(isinstance(j, str) and j for j in FALLBACK_JOKES)
 
-@pytest.mark.asyncio
-async def test_fetch_malformed_response_fails():
+def test_fetch_malformed_response_fails():
     from src.cogs.dadjoke import fetch_dad_joke
     class Response:
         status = 200
@@ -19,4 +18,6 @@ async def test_fetch_malformed_response_fails():
         async def json(self, **kwargs): return {"unexpected": "field"}
     class Session:
         def get(self, *args, **kwargs): return Response()
-    with pytest.raises(ValueError): await fetch_dad_joke(Session())
+    try: asyncio.run(fetch_dad_joke(Session()))
+    except ValueError: return
+    raise AssertionError("malformed response was accepted")
