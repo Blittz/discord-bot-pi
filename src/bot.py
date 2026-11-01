@@ -33,6 +33,9 @@ class MyBot(commands.Bot):
         super().__init__(command_prefix="!", intents=intents)
         self.tree_copy_lock = asyncio.Lock()
 
+    async def allowed_channel(self, interaction: discord.Interaction) -> bool:
+        return await allowed_channel(interaction)
+
     async def setup_hook(self):
         # Load cogs with error visibility
         for ext in (
@@ -44,6 +47,7 @@ class MyBot(commands.Bot):
             "cogs.dadjoke",
             "cogs.photosaver",
             "cogs.events",
+            "cogs.audio",
         ):
             try:
                 await self.load_extension(ext)

@@ -349,3 +349,13 @@ move while downloads are paused. Do not merge it into a live channel's assigned
 folder or invent a channel mapping; recursive viewing and root-wide deduplication
 still include the relocated legacy files. Keep the ownership evidence and
 verification records private, outside Git.
+
+### Audio playback
+
+Use `/play` while connected to a voice channel. Saved files are read from
+`AUDIO_DIR` (default `~/discord-audio`); create that directory and copy in
+MP3, WAV, OGG, FLAC, M4A, AAC, WebM, or Opus files. The bot joins your
+current voice channel, plays the file through FFmpeg, and disconnects when
+finished. An uploaded file can be supplied through `/play`'s optional
+`audio` attachment field; uploads are size-limited by `AUDIO_MAX_UPLOAD_MB`
+(default 25 MB), validated, and removed after playback.
