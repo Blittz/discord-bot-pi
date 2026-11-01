@@ -1,6 +1,6 @@
 from pathlib import Path
 import pytest
-from src.cogs.audio import Audio, PlaybackState, PlaybackView, list_audio_files, validate_audio_path
+from src.cogs.audio import Audio, AudioView, DeleteConfirmView, LibraryView, PlaybackState, PlaybackView, UploadChoiceView, list_audio_files, validate_audio_path
 from src.audio_storage import AudioStorage
 
 def test_list_audio_files_filters_and_sorts(tmp_path: Path):
@@ -56,3 +56,19 @@ def test_storage_save_enforces_quotas_and_metadata(tmp_path):
     assert saved.exists() and storage.metadata_path(saved).exists()
     source.write_bytes(b"123456")
     with pytest.raises(ValueError): storage.save_file(source, 1, "personal", "again.mp3", 9, personal_quota=5, server_quota=100)
+
+def test_all_audio_views_initialize_with_saved_file(tmp_path):
+    class Permissions: administrator = True
+    class User:
+        id = 9; guild_permissions = Permissions(); voice = None
+    class Cog:
+        sessions = {}; storage = None
+    cog = Cog()
+    saved = tmp_path / "stored.mp3"; saved.write_bytes(b"x")
+    audio_view = AudioView(cog, User(), [saved])
+    assert any(getattr(item, "label", "") == "Upload Audio" for item in audio_view.children)
+    assert hasattr(audio_view, "_upload_help")
+    library_view = LibraryView(cog, User())
+    assert {getattr(item, "label", "") for item in library_view.children} == {"My Audio", "Channel Audio", "Server Audio"}
+    assert isinstance(DeleteConfirmView(cog, User(), saved), DeleteConfirmView)
+    assert isinstance(UploadChoiceView(cog, User(), tmp_path, saved, "stored.mp3"), UploadChoiceView)

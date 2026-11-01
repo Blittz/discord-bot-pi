@@ -122,6 +122,23 @@ class AudioView(discord.ui.View):
             return await interaction.response.send_message("Select a file first, then choose Delete Selected.", ephemeral=True)
         await interaction.response.send_message("Confirm deletion? This cannot be undone.", view=DeleteConfirmView(self.cog, self.requester, self.selected_path), ephemeral=True)
 
+    async def _previous(self, interaction):
+        self.page -= 1; self._refresh_items(); await interaction.response.edit_message(view=self)
+
+    async def _next(self, interaction):
+        self.page += 1; self._refresh_items(); await interaction.response.edit_message(view=self)
+
+    async def _upload_help(self, interaction):
+        if hasattr(discord.ui, "FileUpload"):
+            try:
+                modal = discord.ui.Modal(title="Upload Audio")
+                modal.add_item(discord.ui.FileUpload(label="Audio file", required=True))
+                await interaction.response.send_modal(modal)
+                return
+            except (AttributeError, TypeError):
+                log.exception("Native FileUpload API was present but could not be constructed")
+        await interaction.response.send_message("Native file-upload dialogs are unavailable in this library build. Use `/play` with its optional audio attachment field.", ephemeral=True)
+
 class DeleteConfirmView(discord.ui.View):
     def __init__(self, cog, requester, path):
         super().__init__(timeout=60); self.cog, self.requester, self.path = cog, requester, path
@@ -145,23 +162,6 @@ class DeleteConfirmView(discord.ui.View):
             await interaction.followup.send("That file is no longer available or cannot be deleted.", ephemeral=True)
     @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary)
     async def cancel(self, interaction, button): await interaction.response.edit_message(content="Deletion cancelled.", view=None)
-
-    async def _previous(self, interaction):
-        self.page -= 1; self._refresh_items(); await interaction.response.edit_message(view=self)
-
-    async def _next(self, interaction):
-        self.page += 1; self._refresh_items(); await interaction.response.edit_message(view=self)
-
-    async def _upload_help(self, interaction):
-        if hasattr(discord.ui, "FileUpload"):
-            try:
-                modal = discord.ui.Modal(title="Upload Audio")
-                modal.add_item(discord.ui.FileUpload(label="Audio file", required=True))
-                await interaction.response.send_modal(modal)
-                return
-            except (AttributeError, TypeError):
-                log.exception("Native FileUpload API was present but could not be constructed")
-        await interaction.response.send_message("Native file-upload dialogs are unavailable in this library build. Use `/play` with its optional audio attachment field.", ephemeral=True)
 
 class LibraryView(discord.ui.View):
     """Private scope picker; every callback rechecks the member and guild IDs."""
