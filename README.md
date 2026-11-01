@@ -359,3 +359,7 @@ current voice channel, plays the file through FFmpeg, and disconnects when
 finished. An uploaded file can be supplied through `/play`'s optional
 `audio` attachment field; uploads are size-limited by `AUDIO_MAX_UPLOAD_MB`
 (default 25 MB), validated, and removed after playback.
+
+### Playback controls
+
+The private Now Playing message provides Pause, Resume, rewind 30 seconds, fast-forward 30 seconds, Restart, Stop, and Volume controls. Seeking restarts FFmpeg with `-ss` and clamps to the recording boundaries without loading the file into memory. Volume is limited to 25%, 50%, 75%, or 100% (default 100%). `/stop` remains available if a component message is unavailable.

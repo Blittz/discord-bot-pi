@@ -5,6 +5,8 @@ import os
 import shutil
 import tempfile
 import uuid
+import time
+from dataclasses import dataclass
 from pathlib import Path
 
 import discord
@@ -15,6 +17,29 @@ log = logging.getLogger(__name__)
 AUDIO_DIR = Path(os.getenv("AUDIO_DIR", "~/discord-audio")).expanduser().resolve()
 MAX_UPLOAD_BYTES = int(float(os.getenv("AUDIO_MAX_UPLOAD_MB", "25")) * 1024 * 1024)
 EXTENSIONS = {".mp3", ".wav", ".ogg", ".flac", ".m4a", ".aac", ".webm", ".opus"}
+
+@dataclass
+class PlaybackState:
+    vc: discord.VoiceClient
+    requester_id: int
+    token: str
+    path: Path
+    duration: float | None = None
+    source: discord.AudioSource | None = None
+    offset: float = 0.0
+    started: float = 0.0
+    paused: bool = False
+    volume: float = 1.0
+    operation_lock: asyncio.Lock | None = None
+
+    def position(self) -> float:
+        if self.paused or not self.started:
+            return self.offset
+        return self.offset + max(0.0, time.monotonic() - self.started)
+
+    def display(self) -> str:
+        pos = int(self.position()); total = f"{int(self.duration)//60}:{int(self.duration)%60:02d}" if self.duration else "unknown"
+        return f"{'⏸️ Paused' if self.paused else '▶️ Playing'} — {pos//60}:{pos%60:02d} / {total}\nVolume: {int(self.volume*100)}%"
 
 
 def list_audio_files(directory: Path = AUDIO_DIR) -> list[Path]:
@@ -39,6 +64,12 @@ async def validate_audio_file(path: Path) -> None:
     _, stderr = await proc.communicate()
     if proc.returncode != 0:
         raise ValueError("FFmpeg could not decode that file as audio.")
+
+async def audio_duration(path: Path) -> float | None:
+    proc = await asyncio.create_subprocess_exec("ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", str(path), stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
+    out, _ = await asyncio.wait_for(proc.communicate(), timeout=15)
+    try: return float(out.strip()) if proc.returncode == 0 else None
+    except (TypeError, ValueError): return None
 
 
 class AudioView(discord.ui.View):
@@ -101,17 +132,43 @@ class PlaybackView(discord.ui.View):
         # Playback can last for hours; the old 120-second timeout disabled Stop.
         super().__init__(timeout=None)
         self.cog, self.guild_id, self.requester_id = cog, guild_id, requester_id
-        self.token = cog.sessions.get(guild_id, (None, requester_id, None))[2]
+        self.token = cog.sessions.get(guild_id, None).token if guild_id in cog.sessions else None
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         session = self.cog.sessions.get(self.guild_id)
-        if not session or session[2] != self.token:
+        if not session or session.token != self.token:
             await interaction.response.send_message("This playback session has ended.", ephemeral=True)
             return False
-        if interaction.user.id != session[1] and not getattr(interaction.user.guild_permissions, "administrator", False):
+        if interaction.user.id != session.requester_id and not getattr(interaction.user.guild_permissions, "administrator", False):
             await interaction.response.send_message("Only the requester or an administrator can control playback.", ephemeral=True)
             return False
         return True
+
+    async def _control(self, interaction, method, *args):
+        await interaction.response.defer(ephemeral=True)
+        await getattr(self.cog, method)(self.guild_id, self.token, *args)
+        state = self.cog.sessions.get(self.guild_id)
+        if state and state.token == self.token:
+            await interaction.followup.send(state.display(), ephemeral=True)
+
+    @discord.ui.button(label="Pause", style=discord.ButtonStyle.secondary, row=0)
+    async def pause(self, interaction, button): await self._control(interaction, "pause_playback")
+
+    @discord.ui.button(label="Resume", style=discord.ButtonStyle.secondary, row=0)
+    async def resume(self, interaction, button): await self._control(interaction, "resume_playback")
+
+    @discord.ui.button(label="⏪ 30s", style=discord.ButtonStyle.secondary, row=1)
+    async def rewind(self, interaction, button): await self._control(interaction, "seek_playback", -30)
+
+    @discord.ui.button(label="30s ⏩", style=discord.ButtonStyle.secondary, row=1)
+    async def forward(self, interaction, button): await self._control(interaction, "seek_playback", 30)
+
+    @discord.ui.button(label="Restart", style=discord.ButtonStyle.secondary, row=1)
+    async def restart(self, interaction, button): await self._control(interaction, "seek_playback", -10**9)
+
+    @discord.ui.button(label="Volume", style=discord.ButtonStyle.primary, row=2)
+    async def volume(self, interaction, button):
+        await interaction.response.send_message("Use `/volume` with 25, 50, 75, or 100.", ephemeral=True)
 
     @discord.ui.button(label="Stop", style=discord.ButtonStyle.danger)
     async def stop(self, interaction, button):
@@ -120,8 +177,8 @@ class PlaybackView(discord.ui.View):
             await interaction.response.send_message("Only the requester or an administrator can stop playback.", ephemeral=True)
             return
         session = self.cog.sessions.get(self.guild_id)
-        if session and session[2] == self.token:
-            vc, _, _ = session
+        if session and session.token == self.token:
+            vc = session.vc
             if vc.is_playing(): vc.stop()
             if vc.is_connected(): await vc.disconnect()
         await interaction.response.edit_message(content="⏹️ Playback stopped.", view=None)
@@ -131,10 +188,10 @@ class Audio(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         # guild_id -> (voice client, requester user id, immutable session token)
-        self.sessions: dict[int, tuple[discord.VoiceClient, int, str]] = {}
+        self.sessions: dict[int, PlaybackState] = {}
 
     async def _stop_authorized(self, interaction, session):
-        return interaction.user.id == session[1] or getattr(interaction.user.guild_permissions, "administrator", False)
+        return interaction.user.id == session.requester_id or getattr(interaction.user.guild_permissions, "administrator", False)
 
     @app_commands.command(name="stop", description="Stop audio playback in this server")
     async def stop(self, interaction: discord.Interaction):
@@ -142,11 +199,21 @@ class Audio(commands.Cog):
         session = self.sessions.get(interaction.guild_id)
         if not session: return await interaction.followup.send("No audio is playing.", ephemeral=True)
         if not await self._stop_authorized(interaction, session): return await interaction.followup.send("Only the requester or an administrator can stop playback.", ephemeral=True)
-        vc, _, token = session
+        vc, token = session.vc, session.token
         self.sessions.pop(interaction.guild_id, None)
         if vc.is_playing() or vc.is_paused(): vc.stop()
+        if session.source: session.source.cleanup()
         if vc.is_connected(): await vc.disconnect(force=True)
         await interaction.followup.send("Playback stopped.", ephemeral=True)
+
+    @app_commands.command(name="volume", description="Set playback volume (25, 50, 75, or 100 percent)")
+    async def volume_command(self, interaction: discord.Interaction, percent: app_commands.Range[int, 25, 100]):
+        await interaction.response.defer(ephemeral=True)
+        state = self.sessions.get(interaction.guild_id)
+        if not state or percent not in (25, 50, 75, 100): return await interaction.followup.send("Choose 25, 50, 75, or 100 while audio is playing.", ephemeral=True)
+        if not await self._stop_authorized(interaction, state): return await interaction.followup.send("Only the requester or an administrator can change volume.", ephemeral=True)
+        await self.set_volume(interaction.guild_id, state.token, percent)
+        await interaction.followup.send(f"Volume set to {percent}%.", ephemeral=True)
 
     @app_commands.command(name="play", description="Play a saved audio file or an uploaded audio attachment")
     @app_commands.describe(audio="Optional audio attachment to play once")
@@ -198,21 +265,64 @@ class Audio(commands.Cog):
             if not vc.is_connected():
                 raise discord.ClientException("Voice connection did not become ready")
             token = uuid.uuid4().hex
-            self.sessions[guild.id] = (vc, requester.id, token)
-            source = discord.FFmpegPCMAudio(str(path))
+            state = PlaybackState(vc, requester.id, token, path, await audio_duration(path), operation_lock=asyncio.Lock())
+            self.sessions[guild.id] = state
+            source = discord.PCMVolumeTransformer(discord.FFmpegPCMAudio(str(path)), volume=1.0)
+            state.source, state.started = source, time.monotonic()
             done = asyncio.get_running_loop().create_future()
             def after(error):
                 if not done.done(): done.set_result(error)
             vc.play(source, after=after)
-            await interaction.followup.send(f"▶️ Playing **{path.name}** in {channel.mention}.", view=PlaybackView(self, guild.id, requester.id), ephemeral=True)
+            await interaction.followup.send(f"**Now Playing:**\n{path.name}\n\n{state.display()}", view=PlaybackView(self, guild.id, requester.id), ephemeral=True)
             error = await done
             if error: log.error("Audio playback failed: %s", type(error).__name__)
         except Exception:
             await interaction.followup.send("I could not start playback. Check voice permissions and that the file is valid.", ephemeral=True)
         finally:
-            self.sessions.pop(guild.id, None)
+            state = self.sessions.pop(guild.id, None)
+            if state and state.source: state.source.cleanup()
             if vc and vc.is_connected(): await vc.disconnect()
             if cleanup: shutil.rmtree(cleanup, ignore_errors=True)
+
+    async def _state(self, guild_id, token):
+        state = self.sessions.get(guild_id)
+        if not state or state.token != token: return None
+        if state.operation_lock is None: state.operation_lock = asyncio.Lock()
+        return state
+
+    async def pause_playback(self, guild_id, token):
+        state = await self._state(guild_id, token)
+        if state:
+            async with state.operation_lock:
+                if state.vc.is_playing():
+                    state.offset = state.position(); state.vc.pause(); state.paused = True
+
+    async def resume_playback(self, guild_id, token):
+        state = await self._state(guild_id, token)
+        if state:
+            async with state.operation_lock:
+                if state.vc.is_paused(): state.vc.resume(); state.started = time.monotonic(); state.paused = False
+
+    async def seek_playback(self, guild_id, token, delta):
+        state = await self._state(guild_id, token)
+        if not state: return
+        async with state.operation_lock:
+            target = max(0.0, min(state.duration or 10**9, state.position() + delta))
+            was_paused = state.paused
+            if state.vc.is_playing() or state.vc.is_paused(): state.vc.stop()
+            if state.source: state.source.cleanup()
+            source = discord.PCMVolumeTransformer(discord.FFmpegPCMAudio(str(state.path), before_options=f"-ss {target:.2f}"), volume=state.volume)
+            state.source, state.offset, state.paused = source, target, was_paused
+            state.started = time.monotonic()
+            state.vc.play(source)
+            if was_paused: state.vc.pause()
+
+    async def set_volume(self, guild_id, token, percent):
+        state = await self._state(guild_id, token)
+        if state:
+            async with state.operation_lock:
+                state.volume = max(0.25, min(1.0, percent / 100));
+                if isinstance(state.source, discord.PCMVolumeTransformer): state.source.volume = state.volume
 
 
 async def setup(bot):
