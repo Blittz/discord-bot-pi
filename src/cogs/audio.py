@@ -17,9 +17,14 @@ from src.audio_storage import AudioStorage
 
 log = logging.getLogger(__name__)
 AUDIO_DIR = Path(os.getenv("AUDIO_DIR", "~/discord-audio")).expanduser().resolve()
+IMPORT_DIR = Path(os.getenv("AUDIO_IMPORT_DIR", "/home/blittz/discord-audio-import")).expanduser().resolve()
 MAX_UPLOAD_BYTES = int(float(os.getenv("AUDIO_MAX_UPLOAD_MB", "125")) * 1024 * 1024)
 MAX_AUDIO_SECONDS = int(os.getenv("AUDIO_MAX_DURATION_SECONDS", "7200"))
 EXTENSIONS = {".mp3", ".wav", ".ogg", ".flac", ".m4a"}
+
+def list_import_files() -> list[Path]:
+    IMPORT_DIR.mkdir(parents=True, exist_ok=True)
+    return sorted((p for p in IMPORT_DIR.iterdir() if p.is_file() and not p.is_symlink() and p.parent == IMPORT_DIR and p.suffix.lower() in EXTENSIONS), key=lambda p: p.name.lower())
 
 def friendly_audio_name(path: Path) -> str:
     """Resolve display text from stored metadata, then embedded tags, then filename."""
@@ -237,6 +242,55 @@ class LibraryView(discord.ui.View):
     @discord.ui.button(label="Server Audio", style=discord.ButtonStyle.secondary)
     async def server(self, interaction, button): await self._scope(interaction, "server")
 
+class ImportView(discord.ui.View):
+    def __init__(self, cog, requester, files):
+        super().__init__(timeout=300); self.cog, self.requester, self.files = cog, requester, files
+        select = discord.ui.Select(placeholder="Choose an SFTP-imported recording", options=[discord.SelectOption(label=p.name[:100], value=str(i)) for i, p in enumerate(files[:25])])
+        select.callback = self.selected; self.add_item(select)
+    async def selected(self, interaction):
+        await interaction.response.defer(ephemeral=True)
+        try: path = self.files[int(interaction.data["values"][0])]
+        except (IndexError, ValueError): return await interaction.followup.send("That import selection is no longer available.", ephemeral=True)
+        if path.parent != IMPORT_DIR or path.is_symlink() or not path.is_file(): return await interaction.followup.send("That import file is no longer eligible.", ephemeral=True)
+        await interaction.followup.send(f"Choose a destination for **{path.name}**.", view=ImportDestinationView(self.cog, self.requester, path), ephemeral=True)
+
+class ImportDestinationView(discord.ui.View):
+    def __init__(self, cog, requester, path):
+        super().__init__(timeout=300); self.cog, self.requester, self.path = cog, requester, path
+    async def _destination(self, interaction, scope):
+        await interaction.response.defer(ephemeral=True)
+        if not getattr(interaction.user.guild_permissions, "administrator", False): return await interaction.followup.send("Only administrators can import audio.", ephemeral=True)
+        if not self.path.exists() or self.path.parent != IMPORT_DIR or self.path.is_symlink(): return await interaction.followup.send("That import file is no longer available.", ephemeral=True)
+        channel_id = interaction.channel_id if scope == "channel" else None
+        destination = f"{interaction.channel.name}" if scope == "channel" else interaction.guild.name if scope == "server" else "your private My Audio library"
+        await interaction.followup.send(f"**Confirm import**\nFile: `{self.path.name}`\nSize: {self.path.stat().st_size / 1024 / 1024:.1f} MB\nDestination: **{destination}**", view=ImportConfirmView(self.cog, self.requester, self.path, scope, channel_id), ephemeral=True)
+    @discord.ui.button(label="My Audio", style=discord.ButtonStyle.secondary)
+    async def personal(self, interaction, button): await self._destination(interaction, "personal")
+    @discord.ui.button(label="Channel Audio", style=discord.ButtonStyle.secondary)
+    async def channel(self, interaction, button): await self._destination(interaction, "channel")
+    @discord.ui.button(label="Server Audio", style=discord.ButtonStyle.secondary)
+    async def server(self, interaction, button): await self._destination(interaction, "server")
+
+class ImportConfirmView(discord.ui.View):
+    def __init__(self, cog, requester, path, scope, channel_id):
+        super().__init__(timeout=120); self.cog, self.requester, self.path, self.scope, self.channel_id = cog, requester, path, scope, channel_id
+    @discord.ui.button(label="Confirm Import", style=discord.ButtonStyle.success)
+    async def confirm(self, interaction, button):
+        await interaction.response.defer(ephemeral=True)
+        if not getattr(interaction.user.guild_permissions, "administrator", False): return await interaction.followup.send("Only administrators can import audio.", ephemeral=True)
+        try:
+            if self.path.parent != IMPORT_DIR or self.path.is_symlink() or not self.path.is_file(): raise ValueError("The import file is no longer eligible.")
+            if self.path.stat().st_size > MAX_UPLOAD_BYTES: raise ValueError(f"The file exceeds the {MAX_UPLOAD_BYTES // 1024 // 1024} MB limit.")
+            await validate_audio_file(self.path)
+            async with self.cog.storage_lock:
+                saved = await asyncio.to_thread(self.cog.storage.save_file, self.path, interaction.guild_id, self.scope, self.path.name, interaction.user.id, self.channel_id)
+                self.path.unlink()
+            await interaction.edit_original_response(content=f"✅ Imported **{friendly_audio_name(saved)}** into **{self.scope.title()} Audio**.", view=None)
+        except (OSError, ValueError, asyncio.TimeoutError) as error:
+            await interaction.edit_original_response(content=f"❌ Import failed: {error}", view=self)
+    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary)
+    async def cancel(self, interaction, button): await interaction.response.edit_message(content="Import canceled. The source file was preserved.", view=None)
+
 class UploadChoiceView(discord.ui.View):
     def __init__(self, cog, requester, temp_dir, path, display_name):
         super().__init__(timeout=300); self.cog, self.requester, self.temp_dir, self.path, self.display_name = cog, requester, temp_dir, path, display_name
@@ -410,6 +464,15 @@ class Audio(commands.Cog):
 
     async def _stop_authorized(self, interaction, session):
         return interaction.user.id == session.requester_id or getattr(interaction.user.guild_permissions, "administrator", False)
+
+    @app_commands.command(name="importaudio", description="Import an audio file transferred to the Pi by SFTP")
+    async def importaudio(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        if not getattr(interaction.user.guild_permissions, "administrator", False):
+            return await interaction.followup.send("Only server administrators can import audio.", ephemeral=True)
+        files = list_import_files()
+        if not files: return await interaction.followup.send(f"No eligible audio files found in `{IMPORT_DIR}`.", ephemeral=True)
+        await interaction.followup.send("Choose an imported file:", view=ImportView(self, interaction.user, files), ephemeral=True)
 
     @app_commands.command(name="stop", description="Stop audio playback in this server")
     async def stop(self, interaction: discord.Interaction):

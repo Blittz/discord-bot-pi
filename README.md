@@ -371,3 +371,7 @@ Audio storage is scoped by numeric Discord IDs under `AUDIO_DIR` (default `~/dis
 ### Playback activity
 
 While audio is playing, the bot profile shows a Discord **Playing** activity using the recording's friendly artist/title or filename. Paused playback is shown as `⏸ Paused: <name>`; when playback ends or all active servers are idle, the default bot activity is restored.
+
+### SFTP audio import
+
+For files too large to upload through Discord, copy them by SFTP into `/home/blittz/discord-audio-import/` (for example: `sftp user@pi:/home/blittz/discord-audio-import/`). An administrator can run `/importaudio`, choose a direct MP3/WAV/OGG/FLAC/M4A file, select My Audio, Channel Audio, or Server Audio, and confirm the import. Files are FFprobe/FFmpeg validated, quota checked, copied into generated scoped storage names, and removed from the import directory only after a successful commit. The import directory is never scanned automatically and subdirectories/symlinks are ignored.

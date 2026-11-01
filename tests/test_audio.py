@@ -1,6 +1,6 @@
 from pathlib import Path
 import pytest
-from src.cogs.audio import Audio, AudioView, DeleteConfirmView, LibraryView, PlaybackState, PlaybackView, SelectedAudioView, UploadChoiceView, friendly_audio_name, list_audio_files, validate_audio_path
+from src.cogs.audio import Audio, AudioView, DeleteConfirmView, ImportConfirmView, ImportDestinationView, ImportView, LibraryView, PlaybackState, PlaybackView, SelectedAudioView, UploadChoiceView, friendly_audio_name, list_audio_files, validate_audio_path, list_import_files
 from src.audio_storage import AudioStorage
 
 def test_list_audio_files_filters_and_sorts(tmp_path: Path):
@@ -94,6 +94,24 @@ def test_library_selection_exposes_play_and_delete_actions(tmp_path):
     selected = SelectedAudioView(library.cog, library.requester, path, library)
     assert {getattr(item, "label", "") for item in selected.children} == {"▶️ Play", "🗑️ Delete"}
     assert selected.parent is library
+
+def test_import_directory_lists_only_direct_regular_audio_files(tmp_path, monkeypatch):
+    import src.cogs.audio as audio
+    monkeypatch.setattr(audio, "IMPORT_DIR", tmp_path)
+    (tmp_path / "large.mp3").write_bytes(b"x")
+    (tmp_path / "note.txt").write_text("x")
+    (tmp_path / "nested").mkdir()
+    (tmp_path / "nested" / "hidden.mp3").write_bytes(b"x")
+    assert list_import_files() == [tmp_path / "large.mp3"]
+
+def test_import_views_and_admin_gate(tmp_path):
+    class Permissions: administrator = True
+    class User: id = 1; guild_permissions = Permissions()
+    class Cog: storage_lock = __import__('asyncio').Lock(); storage = None
+    path = tmp_path / "recording.mp3"; path.write_bytes(b"x")
+    assert isinstance(ImportView(Cog(), User(), [path]), ImportView)
+    assert isinstance(ImportDestinationView(Cog(), User(), path), ImportDestinationView)
+    assert isinstance(ImportConfirmView(Cog(), User(), path, "personal", None), ImportConfirmView)
 
 def test_presence_tracks_pause_resume_and_stale_sessions(tmp_path):
     import asyncio
