@@ -135,7 +135,7 @@ class AudioView(discord.ui.View):
         await interaction.response.defer(ephemeral=True)
         path = validate_audio_path(self.files[int(interaction.data["values"][0])])
         self.selected_path = path
-        await self.cog.start_playback(interaction, path, self.requester)
+        await interaction.edit_original_response(content=f"Selected **{friendly_audio_name(path)}**. Choose an action:", view=SelectedAudioView(self.cog, self.requester, path, self))
 
     @discord.ui.button(label="Delete Selected", style=discord.ButtonStyle.danger, row=2)
     async def delete_selected(self, interaction, button):
@@ -164,6 +164,25 @@ class AudioView(discord.ui.View):
                 log.exception("Native FileUpload API was present but could not be constructed")
         await interaction.response.send_message("Native file-upload dialogs are unavailable in this library build. Use `/play` with its optional audio attachment field.", ephemeral=True)
 
+class SelectedAudioView(discord.ui.View):
+    def __init__(self, cog, requester, path, parent):
+        super().__init__(timeout=300); self.cog, self.requester, self.path, self.parent = cog, requester, path, parent
+    async def interaction_check(self, interaction):
+        if interaction.user.id != self.requester.id and not getattr(interaction.user.guild_permissions, "administrator", False):
+            await interaction.response.send_message("Only the requester or an administrator can manage this recording.", ephemeral=True); return False
+        return True
+    @discord.ui.button(label="▶️ Play", style=discord.ButtonStyle.primary)
+    async def play(self, interaction, button):
+        await interaction.response.defer(ephemeral=True)
+        try: await self.cog.start_playback(interaction, validate_audio_path(self.path), self.requester)
+        except (OSError, ValueError): await interaction.followup.send("That recording is no longer available.", ephemeral=True)
+    @discord.ui.button(label="🗑️ Delete", style=discord.ButtonStyle.danger)
+    async def delete(self, interaction, button):
+        name = friendly_audio_name(self.path)
+        try: scope = json.loads(self.cog.storage.metadata_path(self.path).read_text(encoding="utf-8")).get("scope", "audio")
+        except (OSError, ValueError, TypeError): scope = "audio"
+        await interaction.response.send_message(f"**Delete permanently?**\nRecording: **{name}**\nLibrary: **{scope.title()} Audio**\nThis action cannot be undone.", view=DeleteConfirmView(self.cog, self.requester, self.path, self.parent), ephemeral=True)
+
 class DeleteConfirmView(discord.ui.View):
     def __init__(self, cog, requester, path, parent=None):
         super().__init__(timeout=60); self.cog, self.requester, self.path, self.parent = cog, requester, path, parent
@@ -185,7 +204,8 @@ class DeleteConfirmView(discord.ui.View):
             await asyncio.to_thread(self.cog.storage.delete_file, self.path, interaction.guild_id)
             if self.parent and self.path in self.parent.files:
                 self.parent.files.remove(self.path); self.parent.selected_path = None; self.parent._refresh_items()
-            await interaction.followup.send(f"Deleted **{deleted_name}** permanently. The library listing has been refreshed.", ephemeral=True)
+            refreshed = AudioView(self.cog, self.requester, list(self.parent.files) if self.parent else []) if self.parent else None
+            await interaction.followup.send(f"Deleted **{deleted_name}** permanently. The library listing has been refreshed.", view=refreshed, ephemeral=True)
         except (OSError, ValueError):
             await interaction.followup.send("That file is no longer available or cannot be deleted.", ephemeral=True)
     @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary)

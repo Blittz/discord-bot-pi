@@ -1,6 +1,6 @@
 from pathlib import Path
 import pytest
-from src.cogs.audio import Audio, AudioView, DeleteConfirmView, LibraryView, PlaybackState, PlaybackView, UploadChoiceView, friendly_audio_name, list_audio_files, validate_audio_path
+from src.cogs.audio import Audio, AudioView, DeleteConfirmView, LibraryView, PlaybackState, PlaybackView, SelectedAudioView, UploadChoiceView, friendly_audio_name, list_audio_files, validate_audio_path
 from src.audio_storage import AudioStorage
 
 def test_list_audio_files_filters_and_sorts(tmp_path: Path):
@@ -83,3 +83,13 @@ def test_friendly_name_falls_back_to_original_filename(tmp_path):
     path = tmp_path / "id123.mp3"; path.write_bytes(b"x")
     path.with_suffix(".mp3.json").write_text('{"original_filename":"My Unicode Song.mp3"}', encoding="utf-8")
     assert friendly_audio_name(path) == "My Unicode Song"
+
+def test_library_selection_exposes_play_and_delete_actions(tmp_path):
+    class Permissions: administrator = True
+    class User: id = 9; guild_permissions = Permissions(); voice = None
+    class Cog: sessions = {}; storage = None
+    path = tmp_path / "song.mp3"; path.write_bytes(b"x")
+    library = AudioView(Cog(), User(), [path])
+    selected = SelectedAudioView(library.cog, library.requester, path, library)
+    assert {getattr(item, "label", "") for item in selected.children} == {"▶️ Play", "🗑️ Delete"}
+    assert selected.parent is library
