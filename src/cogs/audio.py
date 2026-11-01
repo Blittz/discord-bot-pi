@@ -21,6 +21,20 @@ IMPORT_DIR = Path(os.getenv("AUDIO_IMPORT_DIR", "/home/blittz/discord-audio-impo
 MAX_UPLOAD_BYTES = int(float(os.getenv("AUDIO_MAX_UPLOAD_MB", "125")) * 1024 * 1024)
 MAX_AUDIO_SECONDS = int(os.getenv("AUDIO_MAX_DURATION_SECONDS", "7200"))
 EXTENSIONS = {".mp3", ".wav", ".ogg", ".flac", ".m4a"}
+EXPIRATION_TEXT = "⏰ **Audio Player — Menu Expired**\n\nThis menu is no longer active.\n\n**▶️ `/play`** — Open a fresh audio menu.\n\n**⏹️ `/stop`** — Stop any currently playing audio."
+
+class ExpiringView(discord.ui.View):
+    async def on_timeout(self):
+        if getattr(self, "_expiration_attempted", False): return
+        self._expiration_attempted = True
+        message = getattr(self, "message", None)
+        if message:
+            try: await message.edit(content=EXPIRATION_TEXT, view=None)
+            except Exception: log.info("Expired ephemeral menu could not be edited", exc_info=True)
+
+    async def expired_interaction(self, interaction):
+        try: await interaction.response.send_message(EXPIRATION_TEXT, ephemeral=True)
+        except Exception: log.info("Could not acknowledge stale audio menu interaction", exc_info=True)
 
 def list_import_files() -> list[Path]:
     IMPORT_DIR.mkdir(parents=True, exist_ok=True)
@@ -103,7 +117,7 @@ async def audio_duration(path: Path) -> float | None:
     except (TypeError, ValueError): return None
 
 
-class AudioView(discord.ui.View):
+class AudioView(ExpiringView):
     def __init__(self, cog, requester: discord.Member, files: list[Path]):
         super().__init__(timeout=120)
         self.cog, self.requester, self.files, self.page = cog, requester, files, 0
@@ -111,6 +125,8 @@ class AudioView(discord.ui.View):
         self._refresh_items()
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if self.is_finished():
+            await self.expired_interaction(interaction); return False
         if interaction.user.id != self.requester.id and not getattr(interaction.user, "guild_permissions", None).administrator:
             await interaction.response.send_message("Only the playback requester can use this menu.", ephemeral=True)
             return False
@@ -169,10 +185,12 @@ class AudioView(discord.ui.View):
                 log.exception("Native FileUpload API was present but could not be constructed")
         await interaction.response.send_message("Native file-upload dialogs are unavailable in this library build. Use `/play` with its optional audio attachment field.", ephemeral=True)
 
-class SelectedAudioView(discord.ui.View):
+class SelectedAudioView(ExpiringView):
     def __init__(self, cog, requester, path, parent):
         super().__init__(timeout=300); self.cog, self.requester, self.path, self.parent = cog, requester, path, parent
     async def interaction_check(self, interaction):
+        if self.is_finished():
+            await self.expired_interaction(interaction); return False
         if interaction.user.id != self.requester.id and not getattr(interaction.user.guild_permissions, "administrator", False):
             await interaction.response.send_message("Only the requester or an administrator can manage this recording.", ephemeral=True); return False
         return True
@@ -188,7 +206,7 @@ class SelectedAudioView(discord.ui.View):
         except (OSError, ValueError, TypeError): scope = "audio"
         await interaction.response.send_message(f"**Delete permanently?**\nRecording: **{name}**\nLibrary: **{scope.title()} Audio**\nThis action cannot be undone.", view=DeleteConfirmView(self.cog, self.requester, self.path, self.parent), ephemeral=True)
 
-class DeleteConfirmView(discord.ui.View):
+class DeleteConfirmView(ExpiringView):
     def __init__(self, cog, requester, path, parent=None):
         super().__init__(timeout=60); self.cog, self.requester, self.path, self.parent = cog, requester, path, parent
     @discord.ui.button(label="Confirm Delete", style=discord.ButtonStyle.danger)
@@ -219,11 +237,13 @@ class DeleteConfirmView(discord.ui.View):
     @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary)
     async def cancel(self, interaction, button): await interaction.response.edit_message(content="Deletion canceled. The recording was not removed.", view=None)
 
-class LibraryView(discord.ui.View):
+class LibraryView(ExpiringView):
     """Private scope picker; every callback rechecks the member and guild IDs."""
     def __init__(self, cog, requester):
         super().__init__(timeout=300); self.cog, self.requester = cog, requester
     async def interaction_check(self, interaction):
+        if self.is_finished():
+            await self.expired_interaction(interaction); return False
         if interaction.user.id != self.requester.id and not getattr(interaction.user.guild_permissions, "administrator", False):
             await interaction.response.send_message("Only the requester or an administrator can browse this library.", ephemeral=True); return False
         return True
@@ -249,7 +269,7 @@ class LibraryView(discord.ui.View):
     @discord.ui.button(label="Server Audio", style=discord.ButtonStyle.secondary)
     async def server(self, interaction, button): await self._scope(interaction, "server")
 
-class ImportView(discord.ui.View):
+class ImportView(ExpiringView):
     def __init__(self, cog, requester, files):
         super().__init__(timeout=300); self.cog, self.requester, self.files = cog, requester, files
         select = discord.ui.Select(placeholder="Choose an SFTP-imported recording", options=[discord.SelectOption(label=p.name[:100], value=str(i)) for i, p in enumerate(files[:25])])
@@ -261,7 +281,7 @@ class ImportView(discord.ui.View):
         if path.parent != IMPORT_DIR or path.is_symlink() or not path.is_file(): return await interaction.followup.send("That import file is no longer eligible.", ephemeral=True)
         await interaction.followup.send(f"Choose a destination for **{path.name}**.", view=ImportDestinationView(self.cog, self.requester, path), ephemeral=True)
 
-class ImportDestinationView(discord.ui.View):
+class ImportDestinationView(ExpiringView):
     def __init__(self, cog, requester, path):
         super().__init__(timeout=300); self.cog, self.requester, self.path = cog, requester, path
     async def _destination(self, interaction, scope):
@@ -278,7 +298,7 @@ class ImportDestinationView(discord.ui.View):
     @discord.ui.button(label="Server Audio", style=discord.ButtonStyle.secondary)
     async def server(self, interaction, button): await self._destination(interaction, "server")
 
-class ImportConfirmView(discord.ui.View):
+class ImportConfirmView(ExpiringView):
     def __init__(self, cog, requester, path, scope, channel_id):
         super().__init__(timeout=120); self.cog, self.requester, self.path, self.scope, self.channel_id = cog, requester, path, scope, channel_id
     @discord.ui.button(label="Confirm Import", style=discord.ButtonStyle.success)
@@ -298,7 +318,7 @@ class ImportConfirmView(discord.ui.View):
     @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary)
     async def cancel(self, interaction, button): await interaction.response.edit_message(content="Import canceled. The source file was preserved.", view=None)
 
-class UploadChoiceView(discord.ui.View):
+class UploadChoiceView(ExpiringView):
     def __init__(self, cog, requester, temp_dir, path, display_name):
         super().__init__(timeout=300); self.cog, self.requester, self.temp_dir, self.path, self.display_name = cog, requester, temp_dir, path, display_name
         if not getattr(requester.guild_permissions, "administrator", False):

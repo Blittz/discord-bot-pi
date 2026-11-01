@@ -1,6 +1,6 @@
 from pathlib import Path
 import pytest
-from src.cogs.audio import Audio, AudioView, DeleteConfirmView, ImportConfirmView, ImportDestinationView, ImportView, LibraryView, PlaybackState, PlaybackView, SelectedAudioView, UploadChoiceView, friendly_audio_name, list_audio_files, validate_audio_path, list_import_files
+from src.cogs.audio import Audio, AudioView, DeleteConfirmView, ImportConfirmView, ImportDestinationView, ImportView, LibraryView, PlaybackState, PlaybackView, SelectedAudioView, UploadChoiceView, EXPIRATION_TEXT, friendly_audio_name, list_audio_files, validate_audio_path, list_import_files
 from src.audio_storage import AudioStorage
 
 def test_list_audio_files_filters_and_sorts(tmp_path: Path):
@@ -121,6 +121,12 @@ def test_player_message_edit_reuses_existing_message():
     cog = Audio(None); message = Message(); cog.player_messages[55] = message
     assert asyncio.run(cog._edit_player(55, "updated", None)) is True
     assert len(message.edits) == 1 and message.edits[0]["content"] == "updated"
+
+def test_expiring_menu_has_fresh_play_stop_instructions():
+    assert "Audio Player — Menu Expired" in EXPIRATION_TEXT
+    assert "`/play`" in EXPIRATION_TEXT and "`/stop`" in EXPIRATION_TEXT
+    class Cog: sessions = {}
+    assert PlaybackView(Cog(), 1, 1).timeout is None
 
 def test_presence_tracks_pause_resume_and_stale_sessions(tmp_path):
     import asyncio
