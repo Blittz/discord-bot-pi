@@ -205,11 +205,14 @@ class DeleteConfirmView(discord.ui.View):
             if self.parent and self.path in self.parent.files:
                 self.parent.files.remove(self.path); self.parent.selected_path = None; self.parent._refresh_items()
             refreshed = AudioView(self.cog, self.requester, list(self.parent.files) if self.parent else []) if self.parent else None
-            await interaction.followup.send(f"Deleted **{deleted_name}** permanently. The library listing has been refreshed.", view=refreshed, ephemeral=True)
+            library_name = f"{scope.title()} Audio" if scope else "Audio Library"
+            await interaction.edit_original_response(content=f"✅ Deleted: **{deleted_name}**\nPermanently removed from **{library_name}**.", view=None)
+            if refreshed:
+                await interaction.followup.send("Updated saved-audio library:", view=refreshed, ephemeral=True)
         except (OSError, ValueError):
-            await interaction.followup.send("That file is no longer available or cannot be deleted.", ephemeral=True)
+            await interaction.edit_original_response(content="❌ Deletion failed: the recording could not be removed. It may already be gone.", view=self)
     @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary)
-    async def cancel(self, interaction, button): await interaction.response.edit_message(content="Deletion cancelled.", view=None)
+    async def cancel(self, interaction, button): await interaction.response.edit_message(content="Deletion canceled. The recording was not removed.", view=None)
 
 class LibraryView(discord.ui.View):
     """Private scope picker; every callback rechecks the member and guild IDs."""
