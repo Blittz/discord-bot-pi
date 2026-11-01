@@ -390,7 +390,8 @@ class PlaybackView(discord.ui.View):
         await getattr(self.cog, method)(self.guild_id, self.token, *args)
         state = self.cog.sessions.get(self.guild_id)
         if state and state.token == self.token:
-            await interaction.followup.send(state.display(), view=self.cog.control_view(self.guild_id), ephemeral=True)
+            if not await self.cog._edit_player(interaction.channel_id, state.display(), self.cog.control_view(self.guild_id), interaction.message):
+                await interaction.followup.send(state.display(), view=self.cog.control_view(self.guild_id), ephemeral=True)
 
     @discord.ui.button(label="Pause", style=discord.ButtonStyle.secondary, row=0)
     async def toggle(self, interaction, button):
@@ -415,7 +416,7 @@ class PlaybackView(discord.ui.View):
             if vc.is_connected(): await vc.disconnect()
             self.cog.sessions.pop(self.guild_id, None)
             await self.cog._presence_end(session.token)
-        await interaction.response.edit_message(content="⏹️ Playback stopped.", view=None)
+        await interaction.response.edit_message(content="⏹️ Playback stopped.\nThe player is idle.", view=None)
 
 
 class Audio(commands.Cog):
@@ -425,6 +426,7 @@ class Audio(commands.Cog):
         self.storage_lock = asyncio.Lock()
         # guild_id -> (voice client, requester user id, immutable session token)
         self.sessions: dict[int, PlaybackState] = {}
+        self.player_messages = {}
         self.presence_lock = asyncio.Lock()
         self.presence_active: dict[str, tuple[str, bool, int]] = {}
         self.presence_sequence = 0
@@ -465,6 +467,15 @@ class Audio(commands.Cog):
     async def _stop_authorized(self, interaction, session):
         return interaction.user.id == session.requester_id or getattr(interaction.user.guild_permissions, "administrator", False)
 
+    async def _edit_player(self, channel_id, content, view=None, message=None):
+        target = message or self.player_messages.get(channel_id)
+        if not target: return False
+        try:
+            await target.edit(content=content, view=view)
+            return True
+        except (discord.NotFound, discord.HTTPException, AttributeError):
+            self.player_messages.pop(channel_id, None); return False
+
     @app_commands.command(name="importaudio", description="Import an audio file transferred to the Pi by SFTP")
     async def importaudio(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
@@ -486,6 +497,7 @@ class Audio(commands.Cog):
         if session.source: session.source.cleanup()
         if vc.is_connected(): await vc.disconnect(force=True)
         await self._presence_end(session.token)
+        await self._edit_player(interaction.channel_id, "⏹️ Playback stopped.\nThe player is idle.", self.control_view(interaction.guild_id))
         await interaction.followup.send("Playback stopped.", ephemeral=True)
 
     @app_commands.command(name="volume", description="Set playback volume from 1 to 100 percent")
@@ -495,7 +507,9 @@ class Audio(commands.Cog):
         if not state or not 1 <= percent <= 100: return await interaction.followup.send("Choose a whole-number volume from 1 to 100 percent while audio is playing.", ephemeral=True)
         if not await self._stop_authorized(interaction, state): return await interaction.followup.send("Only the requester or an administrator can change volume.", ephemeral=True)
         await self.set_volume(interaction.guild_id, state.token, percent)
-        await interaction.followup.send(f"Volume set to {percent}%.", view=self.control_view(interaction.guild_id), ephemeral=True)
+        state = self.sessions.get(interaction.guild_id)
+        if not await self._edit_player(interaction.channel_id, f"Volume set to {percent}%.\n\n{state.display()}", self.control_view(interaction.guild_id)):
+            await interaction.followup.send(f"Volume set to {percent}%.", view=self.control_view(interaction.guild_id), ephemeral=True)
 
     @app_commands.command(name="play", description="Play a saved audio file or an uploaded audio attachment")
     @app_commands.describe(audio="Optional audio attachment to play once")
@@ -554,7 +568,8 @@ class Audio(commands.Cog):
                 if not done.done(): done.set_result(error)
             vc.play(source, after=after)
             await self._presence_start(state)
-            await interaction.followup.send(f"**Now Playing:**\n{friendly_audio_name(path)}\n\n{state.display()}", view=PlaybackView(self, guild.id, requester.id), ephemeral=True)
+            message = await interaction.followup.send(f"**Now Playing:**\n{friendly_audio_name(path)}\n\n{state.display()}", view=PlaybackView(self, guild.id, requester.id), ephemeral=True, wait=True)
+            self.player_messages[interaction.channel_id] = message
             error = await done
             if error: log.error("Audio playback failed: %s", type(error).__name__)
         except Exception:
@@ -564,6 +579,7 @@ class Audio(commands.Cog):
             if current and current.token == token:
                 state = self.sessions.pop(guild.id, None)
                 if state: await self._presence_end(state.token)
+                await self._edit_player(interaction.channel_id, "⏹️ Playback finished.\nThe player is idle.", None)
             if state and state.source: state.source.cleanup()
             if vc and vc.is_connected(): await vc.disconnect()
             if cleanup: shutil.rmtree(cleanup, ignore_errors=True)
