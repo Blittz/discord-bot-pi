@@ -19,7 +19,7 @@ Version **2.1.0** introduces a clean **cog-based architecture** with **slash com
 * `/adv` – Roll with advantage (1dY±Z)
 * `/dis` – Roll with disadvantage (1dY±Z)
 * `/ai` – Ask ChatGPT (optional, requires API key)
-* `/dadjoke` – Random dad joke about gaming or dogs (ChatGPT)
+* `/dadjoke` – Free family-friendly dad jokes from icanhazdadjoke.com, with a local fallback; no paid AI credits required
 * `/sync` – Resync commands (owner only)
 
 * **Audio Player**

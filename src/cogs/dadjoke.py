@@ -1,69 +1,55 @@
-import os
-import random
+"""Free dad-joke command backed by icanhazdadjoke.com with local fallback."""
 import asyncio
+import random
+import re
+import aiohttp
 import discord
 from discord.ext import commands
 from discord import app_commands
 
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY") or ""
-OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
-OPENAI_MAX_TOKENS = int(os.getenv("OPENAI_MAX_TOKENS", "150"))
-OPENAI_TEMP = float(os.getenv("OPENAI_TEMP", "0.7"))
+API_URL = "https://icanhazdadjoke.com/"
+USER_AGENT = "Blittz Raspberry Pi Discord Bot (https://github.com/Blittz/discord-bot-pi)"
+FALLBACK_JOKES = (
+    "I only know 25 letters of the alphabet. I don't know y.",
+    "I used to hate facial hair, but then it grew on me.",
+    "Why did the scarecrow win an award? Because he was outstanding in his field.",
+    "I am reading a book about anti-gravity. It is impossible to put down.",
+    "What do you call cheese that is not yours? Nacho cheese.",
+    "I told my computer I needed a break, and now it will not stop sending me vacation ads.",
+)
 
-_semaphore = asyncio.Semaphore(2)
+def clean_joke(text: str) -> str:
+    text = re.sub(r"<@!?\d+>", "@\u200b", str(text))
+    text = text.replace("`", "'").strip()
+    return text[:1900] or "I forgot the punchline, but it was hilarious in rehearsal."
 
-TOPICS = [
-    "Dungeons & Dragons",
-    "Online Gaming",
-    "Dice",
-    "World of Warcraft",
-    "Video Games",
-    "TV series Firefly",
-    "Minecraft",
-    "Dogs",
-]
-
+async def fetch_dad_joke(session=None) -> str:
+    own_session = session is None
+    if own_session:
+        session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=8), headers={"Accept": "application/json", "User-Agent": USER_AGENT})
+    try:
+        async with session.get(API_URL) as response:
+            if response.status != 200: raise RuntimeError(f"HTTP {response.status}")
+            payload = await response.json(content_type=None)
+            joke = payload.get("joke") if isinstance(payload, dict) else None
+            if not isinstance(joke, str) or not joke.strip(): raise ValueError("missing joke")
+            return clean_joke(joke)
+    finally:
+        if own_session: await session.close()
 
 class DadJoke(commands.Cog):
     def __init__(self, bot):
-        self.bot = bot
-        self.enabled = bool(OPENAI_API_KEY)
+        self.bot, self.last_joke, self.lock = bot, None, asyncio.Lock()
 
-    def cog_check(self, ctx: commands.Context):
-        return self.enabled
-
-    @app_commands.command(name="dadjoke", description="Get a random dad joke about games or dogs")
+    @app_commands.command(name="dadjoke", description="Get a free, family-friendly dad joke")
     @app_commands.checks.cooldown(3, 10.0)
     async def dadjoke(self, interaction: discord.Interaction):
-        if not self.enabled:
-            await interaction.response.send_message("🔒 ChatGPT not configured yet.", ephemeral=True)
-            return
-
-        topic = random.choice(TOPICS)
-        prompt = f"Tell me a short, clean dad joke about {topic}."
-
         await interaction.response.defer(thinking=True)
-
-        from openai import OpenAI
-        client = OpenAI(api_key=OPENAI_API_KEY)
-
-        async with _semaphore:
-            try:
-                resp = await asyncio.to_thread(
-                    client.chat.completions.create,
-                    model=OPENAI_MODEL,
-                    temperature=OPENAI_TEMP,
-                    max_tokens=OPENAI_MAX_TOKENS,
-                    messages=[
-                        {"role": "system", "content": "You tell short, groan-worthy dad jokes."},
-                        {"role": "user", "content": prompt},
-                    ],
-                )
-                content = resp.choices[0].message.content.strip()
-                await interaction.followup.send(content[:1900] or "…")
-            except Exception as e:
-                await interaction.followup.send(f"⚠️ AI error: {e}")
-
+        async with self.lock:
+            try: joke = await fetch_dad_joke()
+            except Exception: joke = random.choice([j for j in FALLBACK_JOKES if j != self.last_joke] or FALLBACK_JOKES)
+            self.last_joke = joke
+        await interaction.followup.send(joke)
 
 async def setup(bot):
     await bot.add_cog(DadJoke(bot))
