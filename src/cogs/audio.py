@@ -74,6 +74,7 @@ class AudioView(discord.ui.View):
         self.add_item(upload)
 
     async def _selected(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
         path = validate_audio_path(self.files[int(interaction.data["values"][0])])
         await self.cog.start_playback(interaction, path, self.requester)
 
@@ -84,9 +85,15 @@ class AudioView(discord.ui.View):
         self.page += 1; self._refresh_items(); await interaction.response.edit_message(view=self)
 
     async def _upload_help(self, interaction):
-        await interaction.response.send_message(
-            "This installed discord.py version does not provide Discord's native FileUpload modal. "
-            "Use `/play` with its optional **audio** attachment field; it will be validated, played, and deleted.", ephemeral=True)
+        if hasattr(discord.ui, "FileUpload"):
+            try:
+                modal = discord.ui.Modal(title="Upload Audio")
+                modal.add_item(discord.ui.FileUpload(label="Audio file", required=True))
+                await interaction.response.send_modal(modal)
+                return
+            except (AttributeError, TypeError):
+                log.exception("Native FileUpload API was present but could not be constructed")
+        await interaction.response.send_message("Native file-upload dialogs are unavailable in this library build. Use `/play` with its optional audio attachment field.", ephemeral=True)
 
 
 class PlaybackView(discord.ui.View):
@@ -116,17 +123,18 @@ class Audio(commands.Cog):
     @app_commands.command(name="play", description="Play a saved audio file or an uploaded audio attachment")
     @app_commands.describe(audio="Optional audio attachment to play once")
     async def play(self, interaction: discord.Interaction, audio: discord.Attachment | None = None):
+        await interaction.response.defer(ephemeral=True)
         if not await self.bot_allowed(interaction):
-            await interaction.response.send_message("Not allowed in this channel.", ephemeral=True); return
+            await interaction.followup.send("Not allowed in this channel.", ephemeral=True); return
         member = interaction.user if isinstance(interaction.user, discord.Member) else None
         if not member or not member.voice or not member.voice.channel:
-            await interaction.response.send_message("Join a voice channel first.", ephemeral=True); return
+            await interaction.followup.send("Join a voice channel first.", ephemeral=True); return
         if audio:
             await self._uploaded(interaction, audio, member); return
         files = list_audio_files()
         view = AudioView(self, member, files)
         text = "Choose an audio file to play." if files else f"No saved audio files found. Add files to `{AUDIO_DIR}` or use the optional audio attachment field."
-        await interaction.response.send_message(text, view=view if files else None, ephemeral=True)
+        await interaction.followup.send(text, view=view if files else None, ephemeral=True)
 
     async def bot_allowed(self, interaction):
         allowed = getattr(self.bot, "allowed_channel", None)
@@ -135,7 +143,7 @@ class Audio(commands.Cog):
     async def _uploaded(self, interaction, attachment, member):
         name = Path(attachment.filename).suffix.lower()
         if attachment.size > MAX_UPLOAD_BYTES or name not in EXTENSIONS:
-            await interaction.response.send_message(f"Upload an audio file ({', '.join(sorted(EXTENSIONS))}) under {MAX_UPLOAD_BYTES // 1024 // 1024} MB.", ephemeral=True); return
+            await interaction.followup.send(f"Upload an audio file ({', '.join(sorted(EXTENSIONS))}) under {MAX_UPLOAD_BYTES // 1024 // 1024} MB.", ephemeral=True); return
         temp_dir = Path(tempfile.mkdtemp(prefix="discord-audio-"))
         path = temp_dir / f"{uuid.uuid4().hex}{name}"
         try:
@@ -144,33 +152,32 @@ class Audio(commands.Cog):
             await self.start_playback(interaction, path, member, cleanup=temp_dir)
         except Exception:
             shutil.rmtree(temp_dir, ignore_errors=True)
-            await interaction.response.send_message("That upload could not be decoded as audio.", ephemeral=True)
+            await interaction.followup.send("That upload could not be decoded as audio.", ephemeral=True)
 
     async def start_playback(self, interaction, path: Path, requester, cleanup: Path | None = None):
         guild = interaction.guild
         if not guild or guild.id in self.sessions:
-            await interaction.response.send_message("Playback is already active in this server.", ephemeral=True); return
+            await interaction.followup.send("Playback is already active in this server.", ephemeral=True); return
         channel = requester.voice.channel if requester.voice else None
         if not channel:
-            await interaction.response.send_message("Join a voice channel first.", ephemeral=True); return
+            await interaction.followup.send("Join a voice channel first.", ephemeral=True); return
         perms = channel.permissions_for(guild.me)
         if not perms.connect or not perms.speak:
-            await interaction.response.send_message("I need Connect and Speak permissions in that voice channel.", ephemeral=True); return
+            await interaction.followup.send("I need Connect and Speak permissions in that voice channel.", ephemeral=True); return
         vc = None
         try:
-            vc = await channel.connect()
+            vc = await asyncio.wait_for(channel.connect(timeout=10, reconnect=False), timeout=15)
             self.sessions[guild.id] = (vc, requester.id)
             source = discord.FFmpegPCMAudio(str(path))
             done = asyncio.get_running_loop().create_future()
             def after(error):
                 if not done.done(): done.set_result(error)
             vc.play(source, after=after)
-            await interaction.response.send_message(f"▶️ Playing **{path.name}** in {channel.mention}.", view=PlaybackView(self, guild.id, requester.id), ephemeral=True)
+            await interaction.followup.send(f"▶️ Playing **{path.name}** in {channel.mention}.", view=PlaybackView(self, guild.id, requester.id), ephemeral=True)
             error = await done
             if error: log.error("Audio playback failed: %s", type(error).__name__)
         except Exception:
-            if not interaction.response.is_done(): await interaction.response.send_message("I could not start playback.", ephemeral=True)
-            else: await interaction.followup.send("Playback failed.", ephemeral=True)
+            await interaction.followup.send("I could not start playback. Check voice permissions and that the file is valid.", ephemeral=True)
         finally:
             self.sessions.pop(guild.id, None)
             if vc and vc.is_connected(): await vc.disconnect()
