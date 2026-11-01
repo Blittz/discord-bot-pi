@@ -1,6 +1,6 @@
 from pathlib import Path
 import pytest
-from src.cogs.audio import PlaybackState, PlaybackView, list_audio_files, validate_audio_path
+from src.cogs.audio import Audio, PlaybackState, PlaybackView, list_audio_files, validate_audio_path
 
 def test_list_audio_files_filters_and_sorts(tmp_path: Path):
     (tmp_path / "z.mp3").write_bytes(b"")
@@ -26,3 +26,15 @@ def test_playback_controls_are_simplified_and_session_bound():
     assert {"Pause", "Restart", "Volume", "Stop"}.issubset(labels)
     assert not {"⏪ 30s", "30s ⏩", "Forward", "Rewind"} & labels
     assert view.timeout is None
+
+def test_volume_accepts_one_to_one_hundred_and_preserves_transformer():
+    cog = Audio(None)
+    state = PlaybackState(None, 42, "token", Path("track.mp3"), 120.0)
+    cog.sessions[7] = state
+    import asyncio
+    asyncio.run(cog.set_volume(7, "token", 1))
+    assert state.volume == 0.01
+    asyncio.run(cog.set_volume(7, "token", 37))
+    assert state.volume == 0.37
+    asyncio.run(cog.set_volume(7, "token", 100))
+    assert state.volume == 1.0

@@ -157,7 +157,7 @@ class PlaybackView(discord.ui.View):
 
     @discord.ui.button(label="Volume", style=discord.ButtonStyle.primary, row=2)
     async def volume(self, interaction, button):
-        await interaction.response.send_message("Use `/volume` with 25, 50, 75, or 100.", ephemeral=True)
+        await interaction.response.send_message("Use `/volume` with any whole-number percentage from 1 to 100.", ephemeral=True)
 
     @discord.ui.button(label="Stop", style=discord.ButtonStyle.danger)
     async def stop(self, interaction, button):
@@ -197,11 +197,11 @@ class Audio(commands.Cog):
         if vc.is_connected(): await vc.disconnect(force=True)
         await interaction.followup.send("Playback stopped.", ephemeral=True)
 
-    @app_commands.command(name="volume", description="Set playback volume (25, 50, 75, or 100 percent)")
-    async def volume_command(self, interaction: discord.Interaction, percent: app_commands.Range[int, 25, 100]):
+    @app_commands.command(name="volume", description="Set playback volume from 1 to 100 percent")
+    async def volume_command(self, interaction: discord.Interaction, percent: app_commands.Range[int, 1, 100]):
         await interaction.response.defer(ephemeral=True)
         state = self.sessions.get(interaction.guild_id)
-        if not state or percent not in (25, 50, 75, 100): return await interaction.followup.send("Choose 25, 50, 75, or 100 while audio is playing.", ephemeral=True)
+        if not state or not 1 <= percent <= 100: return await interaction.followup.send("Choose a whole-number volume from 1 to 100 percent while audio is playing.", ephemeral=True)
         if not await self._stop_authorized(interaction, state): return await interaction.followup.send("Only the requester or an administrator can change volume.", ephemeral=True)
         await self.set_volume(interaction.guild_id, state.token, percent)
         await interaction.followup.send(f"Volume set to {percent}%.", view=self.control_view(interaction.guild_id), ephemeral=True)
@@ -312,7 +312,7 @@ class Audio(commands.Cog):
         state = await self._state(guild_id, token)
         if state:
             async with state.operation_lock:
-                state.volume = max(0.25, min(1.0, percent / 100));
+                state.volume = max(0.01, min(1.0, percent / 100));
                 if isinstance(state.source, discord.PCMVolumeTransformer): state.source.volume = state.volume
 
 
