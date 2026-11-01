@@ -70,6 +70,7 @@ class PlaybackState:
     paused: bool = False
     volume: float = 1.0
     operation_lock: asyncio.Lock | None = None
+    requester: discord.Member | None = None
 
     def display(self) -> str:
         total = f"{int(self.duration)//60}:{int(self.duration)%60:02d}" if self.duration else "unknown"
@@ -448,7 +449,7 @@ class PlaybackView(discord.ui.View):
             if vc.is_connected(): await vc.disconnect()
             self.cog.sessions.pop(self.guild_id, None)
             await self.cog._presence_end(session.token)
-        await interaction.response.edit_message(content="⏹️ Playback stopped.\nThe player is idle.", view=None)
+        await interaction.response.edit_message(content="⏹️ Playback stopped. Choose what to play next:", view=self.cog.library_view_for(session))
 
 
 class Audio(commands.Cog):
@@ -508,6 +509,9 @@ class Audio(commands.Cog):
         except (discord.NotFound, discord.HTTPException, AttributeError):
             self.player_messages.pop(channel_id, None); return False
 
+    def library_view_for(self, state):
+        return LibraryView(self, state.requester) if state and state.requester else None
+
     @app_commands.command(name="importaudio", description="Import an audio file transferred to the Pi by SFTP")
     async def importaudio(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
@@ -529,7 +533,7 @@ class Audio(commands.Cog):
         if session.source: session.source.cleanup()
         if vc.is_connected(): await vc.disconnect(force=True)
         await self._presence_end(session.token)
-        if not await self._edit_player(interaction.channel_id, "⏹️ Playback stopped.\nThe player is idle.", None):
+        if not await self._edit_player(interaction.channel_id, "⏹️ Playback stopped. Choose what to play next:", self.library_view_for(session)):
             await interaction.followup.send("Playback stopped.", ephemeral=True)
 
     @app_commands.command(name="volume", description="Set playback volume from 1 to 100 percent")
@@ -596,7 +600,7 @@ class Audio(commands.Cog):
             if not vc.is_connected():
                 raise discord.ClientException("Voice connection did not become ready")
             token = uuid.uuid4().hex
-            state = PlaybackState(vc, requester.id, token, path, await audio_duration(path), operation_lock=asyncio.Lock())
+            state = PlaybackState(vc, requester.id, token, path, await audio_duration(path), operation_lock=asyncio.Lock(), requester=requester)
             self.sessions[guild.id] = state
             source = discord.PCMVolumeTransformer(discord.FFmpegPCMAudio(str(path)), volume=1.0)
             state.source = source
@@ -638,7 +642,7 @@ class Audio(commands.Cog):
             if current and current.token == token:
                 state = self.sessions.pop(guild.id, None)
                 if state: await self._presence_end(state.token)
-                await self._edit_player(interaction.channel_id, "⏹️ Playback finished.\nThe player is idle.", None)
+                await self._edit_player(interaction.channel_id, "✅ Playback finished. Choose what to play next:", self.library_view_for(state))
             if state and state.source: state.source.cleanup()
             if vc and vc.is_connected(): await vc.disconnect()
             if cleanup: shutil.rmtree(cleanup, ignore_errors=True)
