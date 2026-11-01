@@ -167,6 +167,8 @@ class Audio(commands.Cog):
         vc = None
         try:
             vc = await asyncio.wait_for(channel.connect(timeout=10, reconnect=False), timeout=15)
+            if not vc.is_connected():
+                raise discord.ClientException("Voice connection did not become ready")
             self.sessions[guild.id] = (vc, requester.id)
             source = discord.FFmpegPCMAudio(str(path))
             done = asyncio.get_running_loop().create_future()
