@@ -90,7 +90,7 @@ class DadJoke(commands.Cog):
         await interaction.response.defer(ephemeral=ephemeral)
         rows = self.ratings.leaderboard(interaction.guild_id)
         if not rows: return await interaction.followup.send("No rated dad jokes in this server yet.", ephemeral=ephemeral)
-        text = "**Dad Joke Leaderboard**\n" + "\n".join(f"**{i}.** 😂 Funny: {funny}    🙄 Groan: {groans} — {joke[:180]}" for i,(joke,groans,funny) in enumerate(rows,1))
+        text = "**Dad Joke Leaderboard**\n" + "\n".join(f"**{i}.** 😂 {funny}    🙄 {groans} — {joke[:180]}" for i,(joke,groans,funny) in enumerate(rows,1))
         try:
             await interaction.followup.send(text[:1900], ephemeral=ephemeral)
         except discord.Forbidden:
@@ -102,8 +102,8 @@ class RatingView(discord.ui.View):
         self._build()
     def _build(self):
         funny, groan = self.cog.ratings.totals(self.guild_id, self.joke_id)
-        f = discord.ui.Button(label=f"😂 Funny ({funny})", style=discord.ButtonStyle.success, custom_id=f"joke:funny:{self.joke_id}")
-        g = discord.ui.Button(label=f"🙄 Groan ({groan})", style=discord.ButtonStyle.secondary, custom_id=f"joke:groan:{self.joke_id}")
+        f = discord.ui.Button(label=f"😂 {funny}", style=discord.ButtonStyle.success, custom_id=f"joke:funny:{self.joke_id}")
+        g = discord.ui.Button(label=f"🙄 {groan}", style=discord.ButtonStyle.secondary, custom_id=f"joke:groan:{self.joke_id}")
         f.callback=lambda i: self._vote(i,"funny"); g.callback=lambda i: self._vote(i,"groan"); self.add_item(f); self.add_item(g)
     async def _vote(self, interaction, vote):
         await interaction.response.defer()

@@ -51,4 +51,13 @@ def test_leaderboard_visibility_choices_and_private_default():
 def test_leaderboard_format_places_funny_before_groan():
     from pathlib import Path
     source = Path(__file__).parents[1].joinpath("src/cogs/dadjoke.py").read_text()
-    assert "😂 Funny: {funny}    🙄 Groan: {groans}" in source
+    assert '😂 {funny}    🙄 {groans}' in source
+    assert '😂 Funny:' not in source and '🙄 Groan:' not in source
+
+def test_rating_button_labels_are_emoji_and_counts_only(tmp_path):
+    from src.cogs.dadjoke import DadJoke, RatingView
+    class Bot: pass
+    cog = DadJoke(Bot()); cog.ratings = JokeRatings(tmp_path / "ratings.sqlite3")
+    view = RatingView(cog, 1, "A joke", None)
+    labels = [item.label for item in view.children]
+    assert labels == ["😂 0", "🙄 0"]
