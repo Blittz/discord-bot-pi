@@ -47,7 +47,7 @@ def test_monthly_usage_unique_duplicate_and_guild_separation(tmp_path):
     assert db.usage_summary(1, "2026-11") == (2, 2)
     assert db.usage_summary(2, "2026-11") == (1, 1)
     assert db.usage_summary(1, "2026-12") == (0, 0)
-    db.record_usage(1, 10, 103, "2026-11", 55); db.record_usage(1, 11, 104, "2026-11", 55)
+    db.record_usage(1, 10, 103, "2026-11", 55); db.record_usage(1, 10, 105, "2026-11", 55); db.record_usage(1, 11, 104, "2026-11", 55)
     assert db.channel_usage(1, 55, "2026-11") == (2, 2)
     assert db.top_users(1, 55, "2026-11")[0] == (10, 2)
 
