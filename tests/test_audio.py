@@ -113,6 +113,15 @@ def test_import_views_and_admin_gate(tmp_path):
     assert isinstance(ImportDestinationView(Cog(), User(), path), ImportDestinationView)
     assert isinstance(ImportConfirmView(Cog(), User(), path, "personal", None), ImportConfirmView)
 
+def test_player_message_edit_reuses_existing_message():
+    import asyncio
+    class Message:
+        def __init__(self): self.edits = []
+        async def edit(self, **kwargs): self.edits.append(kwargs)
+    cog = Audio(None); message = Message(); cog.player_messages[55] = message
+    assert asyncio.run(cog._edit_player(55, "updated", None)) is True
+    assert len(message.edits) == 1 and message.edits[0]["content"] == "updated"
+
 def test_presence_tracks_pause_resume_and_stale_sessions(tmp_path):
     import asyncio
     class Bot:

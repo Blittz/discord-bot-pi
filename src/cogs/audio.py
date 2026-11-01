@@ -179,7 +179,7 @@ class SelectedAudioView(discord.ui.View):
     @discord.ui.button(label="▶️ Play", style=discord.ButtonStyle.primary)
     async def play(self, interaction, button):
         await interaction.response.defer(ephemeral=True)
-        try: await self.cog.start_playback(interaction, validate_audio_path(self.path), self.requester)
+        try: await self.cog.start_playback(interaction, validate_audio_path(self.path), self.requester, message=interaction.message)
         except (OSError, ValueError): await interaction.followup.send("That recording is no longer available.", ephemeral=True)
     @discord.ui.button(label="🗑️ Delete", style=discord.ButtonStyle.danger)
     async def delete(self, interaction, button):
@@ -497,8 +497,8 @@ class Audio(commands.Cog):
         if session.source: session.source.cleanup()
         if vc.is_connected(): await vc.disconnect(force=True)
         await self._presence_end(session.token)
-        await self._edit_player(interaction.channel_id, "⏹️ Playback stopped.\nThe player is idle.", self.control_view(interaction.guild_id))
-        await interaction.followup.send("Playback stopped.", ephemeral=True)
+        if not await self._edit_player(interaction.channel_id, "⏹️ Playback stopped.\nThe player is idle.", None):
+            await interaction.followup.send("Playback stopped.", ephemeral=True)
 
     @app_commands.command(name="volume", description="Set playback volume from 1 to 100 percent")
     async def volume_command(self, interaction: discord.Interaction, percent: app_commands.Range[int, 1, 100]):
@@ -542,7 +542,7 @@ class Audio(commands.Cog):
             shutil.rmtree(temp_dir, ignore_errors=True)
             await interaction.followup.send("That upload could not be decoded as audio.", ephemeral=True)
 
-    async def start_playback(self, interaction, path: Path, requester, cleanup: Path | None = None):
+    async def start_playback(self, interaction, path: Path, requester, cleanup: Path | None = None, message=None):
         guild = interaction.guild
         if not guild or guild.id in self.sessions:
             await interaction.followup.send("Playback is already active in this server.", ephemeral=True); return
@@ -553,6 +553,7 @@ class Audio(commands.Cog):
         if not perms.connect or not perms.speak:
             await interaction.followup.send("I need Connect and Speak permissions in that voice channel.", ephemeral=True); return
         vc = None
+        state = None
         token = None
         try:
             vc = await asyncio.wait_for(channel.connect(timeout=10, reconnect=False), timeout=15)
@@ -568,8 +569,13 @@ class Audio(commands.Cog):
                 if not done.done(): done.set_result(error)
             vc.play(source, after=after)
             await self._presence_start(state)
-            message = await interaction.followup.send(f"**Now Playing:**\n{friendly_audio_name(path)}\n\n{state.display()}", view=PlaybackView(self, guild.id, requester.id), ephemeral=True, wait=True)
-            self.player_messages[interaction.channel_id] = message
+            content = f"**Now Playing:**\n{friendly_audio_name(path)}\n\n{state.display()}"
+            if message:
+                await message.edit(content=content, view=PlaybackView(self, guild.id, requester.id))
+                self.player_messages[interaction.channel_id] = message
+            else:
+                message = await interaction.followup.send(content, view=PlaybackView(self, guild.id, requester.id), ephemeral=True, wait=True)
+                self.player_messages[interaction.channel_id] = message
             error = await done
             if error: log.error("Audio playback failed: %s", type(error).__name__)
         except Exception:
