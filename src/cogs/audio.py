@@ -233,8 +233,15 @@ class LibraryView(discord.ui.View):
         channel_id = getattr(self.requester.voice.channel, "id", None) if self.requester.voice else None
         owner = self.requester.id if scope == "personal" else None
         files = self.cog.storage.list_files(guild_id, scope, owner_id=owner, channel_id=channel_id)
-        if not files: return await interaction.followup.send("That audio library is empty.", ephemeral=True)
-        await interaction.followup.send(f"{scope.title()} Audio", view=AudioView(self.cog, self.requester, files), ephemeral=True)
+        try:
+            if not files:
+                await interaction.edit_original_response(content="That audio library is empty.", view=self)
+            else:
+                await interaction.edit_original_response(content=f"{scope.title()} Audio", view=AudioView(self.cog, self.requester, files))
+        except Exception:
+            log.warning("Library menu edit failed; using a private fallback response", exc_info=True)
+            if not files: await interaction.followup.send("That audio library is empty.", ephemeral=True)
+            else: await interaction.followup.send(f"{scope.title()} Audio", view=AudioView(self.cog, self.requester, files), ephemeral=True)
     @discord.ui.button(label="My Audio", style=discord.ButtonStyle.secondary)
     async def personal(self, interaction, button): await self._scope(interaction, "personal")
     @discord.ui.button(label="Channel Audio", style=discord.ButtonStyle.secondary)
@@ -527,7 +534,11 @@ class Audio(commands.Cog):
             await interaction.followup.send("Join a voice channel first.", ephemeral=True); return
         if audio:
             await self._uploaded(interaction, audio, member); return
-        await interaction.followup.send("Choose an audio library, or upload an audio file.", view=LibraryView(self, member), ephemeral=True)
+        try:
+            await interaction.edit_original_response(content="Choose an audio library, or upload an audio file.", view=LibraryView(self, member))
+        except Exception:
+            log.warning("Initial /play response edit failed; using a private fallback response", exc_info=True)
+            await interaction.followup.send("Choose an audio library, or upload an audio file.", view=LibraryView(self, member), ephemeral=True)
 
     async def bot_allowed(self, interaction):
         allowed = getattr(self.bot, "allowed_channel", None)
