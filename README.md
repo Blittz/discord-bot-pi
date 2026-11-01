@@ -367,3 +367,7 @@ The private Now Playing and playback status responses provide a single Pause or 
 ### Managed audio libraries
 
 Audio storage is scoped by numeric Discord IDs under `AUDIO_DIR` (default `~/discord-audio`): `servers/<guild-id>/personal/<user-id>`, `channel/<channel-id>`, and `server/shared`. Upload validation accepts MP3, WAV, OGG, FLAC, and M4A, verifies an audio stream with FFprobe/FFmpeg, limits uploads to `AUDIO_MAX_UPLOAD_MB` (125 MB by default) and `AUDIO_MAX_DURATION_SECONDS` (2 hours by default), and uses generated filenames. Personal quota defaults to 500 MB (`AUDIO_PERSONAL_QUOTA_MB`); server quota defaults to 2 GB (`AUDIO_SERVER_QUOTA_GB`). `/play` provides private library scope selection, upload choices, and deletion confirmation; permissions are checked again for each operation.
+
+### Playback activity
+
+While audio is playing, the bot profile shows a Discord **Playing** activity using the recording's friendly artist/title or filename. Paused playback is shown as `⏸ Paused: <name>`; when playback ends or all active servers are idle, the default bot activity is restored.

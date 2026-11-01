@@ -93,3 +93,23 @@ def test_library_selection_exposes_play_and_delete_actions(tmp_path):
     selected = SelectedAudioView(library.cog, library.requester, path, library)
     assert {getattr(item, "label", "") for item in selected.children} == {"▶️ Play", "🗑️ Delete"}
     assert selected.parent is library
+
+def test_presence_tracks_pause_resume_and_stale_sessions(tmp_path):
+    import asyncio
+    class Bot:
+        def __init__(self): self.activities = []
+        async def change_presence(self, activity): self.activities.append(activity.name)
+    bot = Bot(); cog = Audio(bot)
+    state = PlaybackState(None, 1, "old", tmp_path / "old.mp3", 10)
+    state.path.write_bytes(b"x")
+    async def run():
+        await cog._presence_start(state)
+        state.paused = True; await cog._presence_state(state)
+        assert bot.activities[-1].startswith("⏸ Paused:")
+        state.paused = False; await cog._presence_state(state)
+        assert bot.activities[-1].startswith("Playing ")
+        newer = PlaybackState(None, 1, "new", tmp_path / "new.mp3", 10); newer.path.write_bytes(b"x")
+        await cog._presence_start(newer); await cog._presence_end("old")
+        assert bot.activities[-1].endswith("new")
+        await cog._presence_end("new"); assert "overlord" in bot.activities[-1]
+    asyncio.run(run())

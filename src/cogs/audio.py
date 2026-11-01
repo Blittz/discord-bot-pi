@@ -363,6 +363,7 @@ class PlaybackView(discord.ui.View):
             if session.source: session.source.cleanup()
             if vc.is_connected(): await vc.disconnect()
             self.cog.sessions.pop(self.guild_id, None)
+            await self.cog._presence_end(session.token)
         await interaction.response.edit_message(content="⏹️ Playback stopped.", view=None)
 
 
@@ -373,6 +374,42 @@ class Audio(commands.Cog):
         self.storage_lock = asyncio.Lock()
         # guild_id -> (voice client, requester user id, immutable session token)
         self.sessions: dict[int, PlaybackState] = {}
+        self.presence_lock = asyncio.Lock()
+        self.presence_active: dict[str, tuple[str, bool, int]] = {}
+        self.presence_sequence = 0
+
+    async def _set_presence(self, name: str | None):
+        try:
+            activity = discord.Game(name=name) if name else discord.Game(name='👑🤖 “I am your AI overlord”')
+            await self.bot.change_presence(activity=activity)
+        except Exception as error:
+            log.warning("Audio presence update failed: %s", type(error).__name__)
+
+    async def _presence_start(self, state: PlaybackState):
+        async with self.presence_lock:
+            self.presence_sequence += 1
+            self.presence_active[state.token] = (friendly_audio_name(state.path), False, self.presence_sequence)
+            await self._refresh_presence_locked()
+
+    async def _presence_state(self, state: PlaybackState):
+        async with self.presence_lock:
+            if state.token in self.presence_active:
+                name, _, seq = self.presence_active[state.token]
+                self.presence_active[state.token] = (name, state.paused, seq)
+                await self._refresh_presence_locked()
+
+    async def _presence_end(self, token: str):
+        async with self.presence_lock:
+            self.presence_active.pop(token, None)
+            await self._refresh_presence_locked()
+
+    async def _refresh_presence_locked(self):
+        if not self.presence_active:
+            await self._set_presence(None); return
+        active = list(self.presence_active.values())
+        playing = [item for item in active if not item[1]]
+        name, paused, _ = max(playing or active, key=lambda item: item[2])
+        await self._set_presence(f"⏸ Paused: {name}" if paused else f"Playing {name}")
 
     async def _stop_authorized(self, interaction, session):
         return interaction.user.id == session.requester_id or getattr(interaction.user.guild_permissions, "administrator", False)
@@ -388,6 +425,7 @@ class Audio(commands.Cog):
         if vc.is_playing() or vc.is_paused(): vc.stop()
         if session.source: session.source.cleanup()
         if vc.is_connected(): await vc.disconnect(force=True)
+        await self._presence_end(session.token)
         await interaction.followup.send("Playback stopped.", ephemeral=True)
 
     @app_commands.command(name="volume", description="Set playback volume from 1 to 100 percent")
@@ -441,6 +479,7 @@ class Audio(commands.Cog):
         if not perms.connect or not perms.speak:
             await interaction.followup.send("I need Connect and Speak permissions in that voice channel.", ephemeral=True); return
         vc = None
+        token = None
         try:
             vc = await asyncio.wait_for(channel.connect(timeout=10, reconnect=False), timeout=15)
             if not vc.is_connected():
@@ -454,13 +493,17 @@ class Audio(commands.Cog):
             def after(error):
                 if not done.done(): done.set_result(error)
             vc.play(source, after=after)
+            await self._presence_start(state)
             await interaction.followup.send(f"**Now Playing:**\n{friendly_audio_name(path)}\n\n{state.display()}", view=PlaybackView(self, guild.id, requester.id), ephemeral=True)
             error = await done
             if error: log.error("Audio playback failed: %s", type(error).__name__)
         except Exception:
             await interaction.followup.send("I could not start playback. Check voice permissions and that the file is valid.", ephemeral=True)
         finally:
-            state = self.sessions.pop(guild.id, None)
+            current = self.sessions.get(guild.id)
+            if current and current.token == token:
+                state = self.sessions.pop(guild.id, None)
+                if state: await self._presence_end(state.token)
             if state and state.source: state.source.cleanup()
             if vc and vc.is_connected(): await vc.disconnect()
             if cleanup: shutil.rmtree(cleanup, ignore_errors=True)
@@ -476,13 +519,13 @@ class Audio(commands.Cog):
         if state:
             async with state.operation_lock:
                 if state.vc.is_playing():
-                    state.vc.pause(); state.paused = True
+                    state.vc.pause(); state.paused = True; await self._presence_state(state)
 
     async def resume_playback(self, guild_id, token):
         state = await self._state(guild_id, token)
         if state:
             async with state.operation_lock:
-                if state.vc.is_paused(): state.vc.resume(); state.paused = False
+                if state.vc.is_paused(): state.vc.resume(); state.paused = False; await self._presence_state(state)
 
     async def restart_playback(self, guild_id, token):
         state = await self._state(guild_id, token)
@@ -493,6 +536,7 @@ class Audio(commands.Cog):
                 state.source = discord.PCMVolumeTransformer(discord.FFmpegPCMAudio(str(state.path)), volume=state.volume)
                 state.paused = False
                 state.vc.play(state.source)
+                await self._presence_state(state)
 
     def control_view(self, guild_id):
         state = self.sessions.get(guild_id)
