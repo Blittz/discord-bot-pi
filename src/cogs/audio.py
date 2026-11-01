@@ -11,11 +11,13 @@ from pathlib import Path
 import discord
 from discord import app_commands
 from discord.ext import commands
+from src.audio_storage import AudioStorage
 
 log = logging.getLogger(__name__)
 AUDIO_DIR = Path(os.getenv("AUDIO_DIR", "~/discord-audio")).expanduser().resolve()
 MAX_UPLOAD_BYTES = int(float(os.getenv("AUDIO_MAX_UPLOAD_MB", "25")) * 1024 * 1024)
-EXTENSIONS = {".mp3", ".wav", ".ogg", ".flac", ".m4a", ".aac", ".webm", ".opus"}
+MAX_AUDIO_SECONDS = int(os.getenv("AUDIO_MAX_DURATION_SECONDS", "7200"))
+EXTENSIONS = {".mp3", ".wav", ".ogg", ".flac", ".m4a"}
 
 @dataclass
 class PlaybackState:
@@ -48,12 +50,23 @@ def validate_audio_path(path: Path, root: Path = AUDIO_DIR) -> Path:
 
 
 async def validate_audio_file(path: Path) -> None:
-    """Ask ffmpeg to decode enough metadata to reject non-audio uploads."""
+    """Validate a local upload as an audio stream without network protocols."""
+    probe = await asyncio.create_subprocess_exec(
+        "ffprobe", "-v", "error", "-protocol_whitelist", "file,pipe", "-select_streams", "a:0",
+        "-show_entries", "stream=codec_type:format=duration", "-of", "json", str(path),
+        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+    out, _ = await asyncio.wait_for(probe.communicate(), timeout=20)
+    if probe.returncode != 0:
+        raise ValueError("FFprobe could not read this audio file.")
+    import json
+    data = json.loads(out or b"{}")
+    if not data.get("streams") or float((data.get("format") or {}).get("duration") or 0) > MAX_AUDIO_SECONDS:
+        raise ValueError("Audio is missing a valid stream or exceeds the duration limit.")
     proc = await asyncio.create_subprocess_exec(
-        "ffmpeg", "-v", "error", "-i", str(path), "-f", "null", "-",
+        "ffmpeg", "-v", "error", "-protocol_whitelist", "file,pipe", "-i", str(path), "-f", "null", "-",
         stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE,
     )
-    _, stderr = await proc.communicate()
+    _, stderr = await asyncio.wait_for(proc.communicate(), timeout=60)
     if proc.returncode != 0:
         raise ValueError("FFmpeg could not decode that file as audio.")
 
@@ -118,6 +131,29 @@ class AudioView(discord.ui.View):
                 log.exception("Native FileUpload API was present but could not be constructed")
         await interaction.response.send_message("Native file-upload dialogs are unavailable in this library build. Use `/play` with its optional audio attachment field.", ephemeral=True)
 
+class LibraryView(discord.ui.View):
+    """Private scope picker; every callback rechecks the member and guild IDs."""
+    def __init__(self, cog, requester):
+        super().__init__(timeout=300); self.cog, self.requester = cog, requester
+    async def interaction_check(self, interaction):
+        if interaction.user.id != self.requester.id and not getattr(interaction.user.guild_permissions, "administrator", False):
+            await interaction.response.send_message("Only the requester or an administrator can browse this library.", ephemeral=True); return False
+        return True
+    async def _scope(self, interaction, scope):
+        await interaction.response.defer(ephemeral=True)
+        guild_id = interaction.guild_id
+        channel_id = getattr(self.requester.voice.channel, "id", None) if self.requester.voice else None
+        owner = self.requester.id if scope == "personal" else None
+        files = self.cog.storage.list_files(guild_id, scope, owner_id=owner, channel_id=channel_id)
+        if not files: return await interaction.followup.send("That audio library is empty.", ephemeral=True)
+        await interaction.followup.send(f"{scope.title()} Audio", view=AudioView(self.cog, self.requester, files), ephemeral=True)
+    @discord.ui.button(label="My Audio", style=discord.ButtonStyle.secondary)
+    async def personal(self, interaction, button): await self._scope(interaction, "personal")
+    @discord.ui.button(label="Channel Audio", style=discord.ButtonStyle.secondary)
+    async def channel(self, interaction, button): await self._scope(interaction, "channel")
+    @discord.ui.button(label="Server Audio", style=discord.ButtonStyle.secondary)
+    async def server(self, interaction, button): await self._scope(interaction, "server")
+
 
 class PlaybackView(discord.ui.View):
     def __init__(self, cog, guild_id, requester_id):
@@ -178,6 +214,7 @@ class PlaybackView(discord.ui.View):
 class Audio(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+        self.storage = AudioStorage(AUDIO_DIR)
         # guild_id -> (voice client, requester user id, immutable session token)
         self.sessions: dict[int, PlaybackState] = {}
 
@@ -217,10 +254,7 @@ class Audio(commands.Cog):
             await interaction.followup.send("Join a voice channel first.", ephemeral=True); return
         if audio:
             await self._uploaded(interaction, audio, member); return
-        files = list_audio_files()
-        view = AudioView(self, member, files)
-        text = "Choose an audio file to play." if files else f"No saved audio files found. Add files to `{AUDIO_DIR}` or use the optional audio attachment field."
-        await interaction.followup.send(text, view=view if files else None, ephemeral=True)
+        await interaction.followup.send("Choose an audio library, or upload an audio file.", view=LibraryView(self, member), ephemeral=True)
 
     async def bot_allowed(self, interaction):
         allowed = getattr(self.bot, "allowed_channel", None)

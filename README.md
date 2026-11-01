@@ -363,3 +363,7 @@ finished. An uploaded file can be supplied through `/play`'s optional
 ### Playback controls
 
 The private Now Playing and playback status responses provide a single Pause or Resume button, Restart, Stop, and Volume controls. `/volume` accepts any whole-number percentage from 1% through 100% (default 100%). `/stop` remains available if a component message is unavailable.
+
+### Managed audio libraries
+
+Audio storage is scoped by numeric Discord IDs under `AUDIO_DIR` (default `~/discord-audio`): `servers/<guild-id>/personal/<user-id>`, `channel/<channel-id>`, and `server/shared`. Upload validation accepts MP3, WAV, OGG, FLAC, and M4A, verifies an audio stream with FFprobe/FFmpeg, limits uploads to `AUDIO_MAX_UPLOAD_MB` (25 MB by default) and `AUDIO_MAX_DURATION_SECONDS` (2 hours by default), and uses generated filenames. `/play` provides private library scope selection; permissions are checked again when a file is selected.

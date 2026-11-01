@@ -1,6 +1,7 @@
 from pathlib import Path
 import pytest
 from src.cogs.audio import Audio, PlaybackState, PlaybackView, list_audio_files, validate_audio_path
+from src.audio_storage import AudioStorage
 
 def test_list_audio_files_filters_and_sorts(tmp_path: Path):
     (tmp_path / "z.mp3").write_bytes(b"")
@@ -38,3 +39,13 @@ def test_volume_accepts_one_to_one_hundred_and_preserves_transformer():
     assert state.volume == 0.37
     asyncio.run(cog.set_volume(7, "token", 100))
     assert state.volume == 1.0
+
+def test_storage_scopes_are_id_based_and_isolated(tmp_path):
+    storage = AudioStorage(tmp_path)
+    personal, meta = storage.reserve_path(10, "personal", "../private.mp3", owner_id=20)
+    assert personal.parent == tmp_path / "servers" / "10" / "personal" / "20"
+    assert ".." not in personal.name
+    personal.write_bytes(b"audio")
+    storage.write_metadata(personal, "friendly name.mp3", 20, "personal")
+    assert storage.list_files(10, "personal", owner_id=20) == [personal]
+    assert storage.list_files(11, "personal", owner_id=20) == []
