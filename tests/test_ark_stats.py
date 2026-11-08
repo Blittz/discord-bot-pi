@@ -1,6 +1,89 @@
 import sqlite3
+from pathlib import Path
 
-from src.ark_stats import ArkStatsStore, discord_timestamp, format_duration
+from src.ark_stats import ArkStatsStore, discord_timestamp, format_duration, parse_death_line
+
+
+FIXTURE = Path(__file__).parent / "fixtures/ark_deaths.log"
+
+
+def test_death_parser_extracts_creature_and_zombified_classification():
+    event = parse_death_line(FIXTURE.read_text().splitlines()[0])
+    assert event.victim_name == "Blittz"
+    assert event.victim_level == 75
+    assert event.killer_name == "Zombified Pteranodon"
+    assert event.killer_level == 10
+    assert event.zombified is True
+
+
+def test_death_parser_accepts_unknown_killer_and_rejects_ambiguous_lines():
+    event = parse_death_line("2026.11.08_14.11.00: Blittz - Lvl 75 () was killed!")
+    assert event is not None and event.killer_name is None
+    assert parse_death_line("not a death record") is None
+
+
+def test_log_collector_starts_at_end_and_deduplicates(tmp_path):
+    path = tmp_path / "ShooterGame.log"
+    path.write_text(FIXTURE.read_text())
+    store = ArkStatsStore(tmp_path / "stats.sqlite3")
+    assert store.collect_log(path, {"id:blittz": "Blittz"}) == 0
+    with path.open("a") as handle:
+        handle.write("2026.11.08_14.11.00: Blittz - Lvl 75 () was killed by a Rex - Lvl 20 ()!\n")
+    assert store.collect_log(path, {"id:blittz": "Blittz"}) == 1
+    assert store.collect_log(path, {"id:blittz": "Blittz"}) == 0
+    assert store.death_summary("id:blittz")[:2] == (1, 0)
+
+
+def test_log_collector_handles_partial_lines_and_truncation(tmp_path):
+    path = tmp_path / "ShooterGame.log"
+    path.write_text("")
+    store = ArkStatsStore(tmp_path / "stats.sqlite3")
+    store.collect_log(path, {})
+    with path.open("a") as handle:
+        handle.write("2026.11.08_14.12.00: Blittz - Lvl 75 () was killed!")
+    assert store.collect_log(path, {}) == 0
+    with path.open("a") as handle:
+        handle.write("\n")
+    assert store.collect_log(path, {}) == 1
+
+
+def test_rotation_recovers_unread_tail_from_matching_backup(tmp_path):
+    path = tmp_path / "ShooterGame.log"
+    path.write_text("2026.11.08_14.14.00: Blittz - Lvl 75 () was killed!\n")
+    store = ArkStatsStore(tmp_path / "stats.sqlite3")
+    store.collect_log(path, {})
+    with path.open("a") as handle:
+        handle.write("2026.11.08_14.15.00: Blittz - Lvl 75 () was killed!\n")
+    backup = tmp_path / "ShooterGame-backup-1.log"
+    path.rename(backup)
+    path.write_text("2026.11.08_14.16.00: Blittz - Lvl 75 () was killed!\n")
+    assert store.collect_log(path, {}) == 1
+
+
+def test_rotation_recovers_by_unique_content_when_inode_changes(tmp_path):
+    path = tmp_path / "ShooterGame.log"
+    path.write_text("header\n")
+    store = ArkStatsStore(tmp_path / "stats.sqlite3")
+    store.collect_log(path, {})
+    with path.open("a") as handle:
+        handle.write("2026.11.08_14.17.00: Blittz - Lvl 75 () was killed!\n")
+    old = tmp_path / "old.log"
+    path.rename(old)
+    backup = tmp_path / "ShooterGame-backup-copy.log"
+    backup.write_bytes(old.read_bytes())
+    path.write_text("new active\n")
+    assert store.collect_log(path, {}) == 1
+
+
+def test_unmatched_rotation_records_coverage_gap(tmp_path):
+    path = tmp_path / "ShooterGame.log"
+    path.write_text("old\n")
+    store = ArkStatsStore(tmp_path / "stats.sqlite3")
+    store.collect_log(path, {})
+    path.rename(tmp_path / "unrelated.log")
+    path.write_text("new\n")
+    store.collect_log(path, {})
+    assert store._metadata("death_coverage_gap")
 
 
 def test_presentation_formats_durations_and_timezone_aware_timestamps():

@@ -8,7 +8,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from src.ark_service import ArkRconService, shared_ark_service
-from src.ark_stats import STATS_ENABLED, discord_timestamp, format_duration, shared_ark_stats_store
+from src.ark_stats import DEATH_TRACKING_ENABLED, STATS_ENABLED, discord_timestamp, format_duration, shared_ark_stats_store
 from src.cogs.ark_players import safe_player_name
 
 OWNER_ID = int(os.getenv("OWNER_ID", "0"))
@@ -72,9 +72,15 @@ class Ark(commands.GroupCog, group_name="ark", group_description="Read-only ARK 
         for _key, name, seconds, last_played in rows:
             safe_name = safe_player_name(name)
             last = discord_timestamp(last_played) or "Never"
+            deaths, zombified, cause, _killer_counts = self.stats_store.death_summary(_key) if DEATH_TRACKING_ENABLED else (None, None, None, None)
+            death_line = f"\n**Deaths:** {deaths}" if deaths is not None else ""
+            if cause:
+                death_line += f" (last cause: {safe_player_name(cause)})"
+            if zombified is not None:
+                death_line += f"\n**Zombified deaths:** {zombified}"
             embed.add_field(
                 name=safe_name,
-                value=f"**Playtime:** {format_duration(seconds)}\n**Last played:** {last}",
+                value=f"**Playtime:** {format_duration(seconds)}\n**Last played:** {last}{death_line}",
                 inline=False,
             )
         await interaction.response.send_message(embed=embed, ephemeral=True)
