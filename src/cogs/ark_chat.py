@@ -23,6 +23,7 @@ POLL_SECONDS = float(os.getenv("ARK_CHAT_POLL_SECONDS", "5"))
 RELAY_TO_DISCORD = os.getenv("ARK_RELAY_TO_DISCORD", "false").lower() in {"1", "true", "yes", "on"}
 RELAY_TO_ARK = os.getenv("ARK_RELAY_TO_ARK", "false").lower() in {"1", "true", "yes", "on"}
 MAX_CHAT_LENGTH = 180
+NON_CHAT_STATUS_RESPONSES = frozenset({"Server received, But no response!!"})
 DEDUP_TTL = 900.0
 MAX_DEDUP_ENTRIES = 512
 MAX_QUEUE = 50
@@ -98,7 +99,10 @@ def sanitize_discord_text(line: str) -> str:
 
 
 def parse_chat_lines(response: str) -> list[str]:
-    return [line for line in (normalize_chat_line(x) for x in response.splitlines()) if line]
+    return [
+        line for line in (normalize_chat_line(x) for x in response.splitlines())
+        if line and line not in NON_CHAT_STATUS_RESPONSES
+    ]
 
 
 class ExpiringDedup:

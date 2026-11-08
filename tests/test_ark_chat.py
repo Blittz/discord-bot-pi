@@ -24,6 +24,13 @@ class ArkChatTests(unittest.TestCase):
         self.assertEqual(lines, ["Alice: hi", "Bob: hello"])
         self.assertEqual(chat_fingerprint(lines[0]), chat_fingerprint(" alice:   hi "))
 
+    def test_exact_rcon_status_response_is_not_chat(self):
+        self.assertEqual(parse_chat_lines("Server received, But no response!!"), [])
+
+    def test_player_message_containing_status_phrase_is_preserved(self):
+        line = "Alice: Server received, But no response!! please"
+        self.assertEqual(parse_chat_lines(line), [line])
+
     def test_identical_text_from_different_speakers_has_different_key(self):
         from src.cogs.ark_chat import chat_event_key
         self.assertNotEqual(chat_event_key("Alice: hello"), chat_event_key("Bob: hello"))
