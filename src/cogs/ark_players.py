@@ -46,6 +46,10 @@ def online_count_label(count: int) -> str:
     return f"{count} player{'s' if count != 1 else ''} online"
 
 
+def death_count_label(count: int) -> str:
+    return f"{count} {'death' if count == 1 else 'deaths'} total"
+
+
 @dataclass(frozen=True)
 class PlayerAnnouncement:
     text: str
@@ -145,7 +149,7 @@ class ArkPlayers(commands.Cog):
         else:
             text = f"💀 **{victim}** died under mysterious circumstances"
         if death.total_deaths is not None:
-            text += f" ({death.total_deaths} deaths total)"
+            text += f" ({death_count_label(death.total_deaths)})"
         await self._enqueue(text)
 
     async def _delivery_worker(self):

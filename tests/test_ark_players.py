@@ -3,7 +3,8 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 from src.ark_stats import DeathEvent, RecordedDeath
-from src.cogs.ark_players import ArkPlayers, safe_player_name
+from src.cogs.ark_players import ArkPlayers, death_count_label, safe_player_name
+from src.cogs.ark import Ark
 
 
 class ArkPlayerNotificationTests(unittest.IsolatedAsyncioTestCase):
@@ -149,6 +150,33 @@ class ArkPlayerNotificationTests(unittest.IsolatedAsyncioTestCase):
         cog = self.make_cog()
         await cog._enqueue_death(RecordedDeath(DeathEvent("a", "t", "Alice", 1, "Brontosaurus", 29, False), "id:a", 6))
         self.assertIn("💀 **Alice** was killed by a level 29 Brontosaurus (6 deaths total)", cog._enqueue.await_args.args[0])
+
+    def test_death_count_grammar(self):
+        self.assertEqual(death_count_label(1), "1 death total")
+        self.assertEqual(death_count_label(2), "2 deaths total")
+        self.assertEqual(death_count_label(9), "9 deaths total")
+
+    async def test_stats_reset_requires_owner_and_two_steps(self):
+        cog = object.__new__(Ark)
+        cog._reset_confirmations = {}
+        cog.stats_store = SimpleNamespace(reset=__import__("unittest").mock.Mock())
+        interaction = SimpleNamespace(user=SimpleNamespace(id=7), response=SimpleNamespace(send_message=AsyncMock()))
+        import src.cogs.ark as module
+        with patch.object(module, "OWNER_ID", 7):
+            await cog.stats_reset.callback(cog, interaction, False)
+            self.assertIn("erase", interaction.response.send_message.await_args.args[0])
+            await cog.stats_reset.callback(cog, interaction, True)
+        cog.stats_store.reset.assert_called_once()
+
+    async def test_stats_reset_rejects_non_owner(self):
+        cog = object.__new__(Ark)
+        cog._reset_confirmations = {}
+        cog.stats_store = SimpleNamespace(reset=__import__("unittest").mock.Mock())
+        interaction = SimpleNamespace(user=SimpleNamespace(id=8), response=SimpleNamespace(send_message=AsyncMock()))
+        import src.cogs.ark as module
+        with patch.object(module, "OWNER_ID", 7):
+            await cog.stats_reset.callback(cog, interaction, True)
+        cog.stats_store.reset.assert_not_called()
 
     async def test_death_announcement_formats_zombified_and_unknown(self):
         cog = self.make_cog()

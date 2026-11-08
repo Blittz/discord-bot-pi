@@ -158,6 +158,28 @@ def test_interrupted_snapshot_resumes_from_fresh_baseline(tmp_path):
     assert store.stats("id:a")[2] == 20
 
 
+def test_reset_clears_stats_cursor_and_preserves_server_name(tmp_path):
+    store = ArkStatsStore(tmp_path / "stats.sqlite3")
+    store.set_server_name("Vox Noctis")
+    store.record_snapshot({"id:a": "Alice"}, now_mono=0, now_wall="t0")
+    store.record_snapshot({"id:a": "Alice"}, now_mono=10, now_wall="t1")
+    store.reset()
+    assert store.server_name() == "Vox Noctis"
+    assert store.stats("id:a")[2] == 0
+    assert store.tracking_started()
+    assert store._metadata("death_file_state") is None
+    assert store._epoch() == 2
+
+
+def test_reset_starts_new_baseline_without_replaying_history(tmp_path):
+    path = tmp_path / "ShooterGame.log"
+    path.write_text("2026.11.08_23.00.00: Alice - Lvl 1 () was killed!\n")
+    store = ArkStatsStore(tmp_path / "stats.sqlite3")
+    store.collect_log(path, {"id:a": "Alice"})
+    store.reset()
+    assert store.collect_log(path, {"id:a": "Alice"}) == 0
+
+
 def test_leave_join_duplicate_and_reset_boundary(tmp_path):
     store = ArkStatsStore(tmp_path / "stats.sqlite3")
     store.record_snapshot({"id:a": "Alice"}, now_mono=0, now_wall="t0")
