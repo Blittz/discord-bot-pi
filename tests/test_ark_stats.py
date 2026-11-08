@@ -1,7 +1,7 @@
 import sqlite3
 from pathlib import Path
 
-from src.ark_stats import ArkStatsStore, discord_timestamp, format_duration, parse_death_line
+from src.ark_stats import ArkStatsStore, discover_server_name, discord_timestamp, format_duration, parse_death_line, parse_server_start_line
 
 
 FIXTURE = Path(__file__).parent / "fixtures/ark_deaths.log"
@@ -16,10 +16,39 @@ def test_death_parser_extracts_creature_and_zombified_classification():
     assert event.zombified is True
 
 
+def test_server_name_parser_requires_verified_start_format(tmp_path):
+    line = '[2026.11.08-23.03.57:815][ 16]Server: "Vox Noctis" has successfully started!'
+    assert parse_server_start_line(line) == "Vox Noctis"
+    assert parse_server_start_line('Server: "Vox Noctis" has successfully started!') is None
+    assert parse_server_start_line('[2026.11.08-23.03.57:815][16]Server: "Vox Noctis" started!') is None
+    path = tmp_path / "ShooterGame.log"
+    path.write_text("noise\n" + line + "\n")
+    assert discover_server_name(path) == "Vox Noctis"
+
+
 def test_death_parser_accepts_unknown_killer_and_rejects_ambiguous_lines():
     event = parse_death_line("2026.11.08_14.11.00: Blittz - Lvl 75 () was killed!")
     assert event is not None and event.killer_name is None
     assert parse_death_line("not a death record") is None
+
+
+def test_death_parser_accepts_unreal_prefix_and_numeric_killer_sid_suffix():
+    drowning = parse_death_line("[2026.11.08-22.07.38:308][252]2026.11.08_22.07.38: Blittz - Lvl 75 () was killed!")
+    falling = parse_death_line("[2026.11.08-22.08.39:821][774]2026.11.08_22.08.39: Blittz - Lvl 75 () was killed! [KillerSID: 614811848]")
+    assert drowning is not None and drowning.killer_name is None
+    assert falling is not None and falling.killer_name is None
+
+
+def test_death_parser_rejects_malformed_killer_sid_suffix():
+    assert parse_death_line("2026.11.08_22.08.39: Blittz - Lvl 75 () was killed! [KillerSID: unknown]") is None
+    assert parse_death_line("2026.11.08_22.08.39: Blittz - Lvl 75 () was killed! extra text") is None
+
+
+def test_creature_deaths_accept_numeric_killer_sid_suffix():
+    rex = parse_death_line("2026.11.08_22.09.00: Blittz - Lvl 75 () was killed by a Rex - Lvl 20 ()! [KillerSID: 12345]")
+    zombie = parse_death_line("2026.11.08_22.10.00: Blittz - Lvl 75 () was killed by a Zombified Stegosaurus - Lvl 29 ()! [KillerSID: 12345]")
+    assert rex is not None and rex.killer_name == "Rex" and rex.zombified is False
+    assert zombie is not None and zombie.killer_name == "Zombified Stegosaurus" and zombie.zombified is True
 
 
 def test_log_collector_starts_at_end_and_deduplicates(tmp_path):
@@ -117,6 +146,16 @@ def test_missing_polls_and_restart_do_not_add_time(tmp_path):
     reopened = ArkStatsStore(path)
     reopened.record_snapshot({"id:a": "Alice"}, now_mono=1000, now_wall="t3")
     assert reopened.stats("id:a")[2] == 10
+
+
+def test_interrupted_snapshot_resumes_from_fresh_baseline(tmp_path):
+    store = ArkStatsStore(tmp_path / "stats.sqlite3")
+    store.record_snapshot({"id:a": "Alice"}, now_mono=0, now_wall="t0")
+    store.record_snapshot({"id:a": "Alice"}, now_mono=10, now_wall="t1")
+    store.interrupt_snapshot()
+    store.record_snapshot({"id:a": "Alice"}, now_mono=1000, now_wall="t2")
+    store.record_snapshot({"id:a": "Alice"}, now_mono=1010, now_wall="t3")
+    assert store.stats("id:a")[2] == 20
 
 
 def test_leave_join_duplicate_and_reset_boundary(tmp_path):

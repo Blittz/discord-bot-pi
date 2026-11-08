@@ -210,6 +210,23 @@ without generating false joins or leaves. Player platform identifiers are used
 only internally when available and are never posted or logged. Notifications
 are delivered only to `ARK_CHANNEL_ID`.
 
+The player monitor treats three consecutive failed `ListPlayers` polls as an
+ARK outage and emits one offline announcement; the first successful poll after
+that emits one recovery announcement. Initial startup is silent, and valid
+empty snapshots remain distinct from failed requests. Failed polls interrupt
+the playtime baseline, so recovery starts a fresh baseline without crediting
+unverified outage time. The outage marker is persisted to avoid duplicate
+state transitions across restarts.
+
+When `ARK_DEATH_TRACKING_ENABLED=true`, newly committed death events from the
+configured read-only `ShooterGame.log` are added to the same bounded ARK
+notification queue when `ARK_RELAY_TO_DISCORD=true`. Collection and SQLite
+cursor advancement do not depend on Discord delivery. A send failure or a
+full queue can therefore leave an event recorded without an announcement;
+events are never replayed solely to recover a failed Discord send, avoiding
+floods after reconnects. Death announcements are mention-safe and omit a
+personal total when player attribution is uncertain.
+
 Retrieving the ARK chat buffer may affect other RCON consumers. Enable only one
 chat-buffer consumer at a time until the server behavior is confirmed. To
 rollback, set both relay flags to `false` and restart the bot through the normal

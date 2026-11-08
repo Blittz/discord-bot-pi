@@ -24,15 +24,18 @@ DEATH_TRACKING_ENABLED = os.getenv("ARK_DEATH_TRACKING_ENABLED", "false").lower(
 LOG_DIRECTORY = Path(os.getenv("ARK_LOG_DIRECTORY", "")) if os.getenv("ARK_LOG_DIRECTORY") else None
 LOG_FILENAME = os.getenv("ARK_LOG_FILENAME", "ShooterGame.log")
 DEATH_POLL_SECONDS = float(os.getenv("ARK_DEATH_POLL_SECONDS", "10"))
+SERVER_START_LINE = re.compile(r'^\[\d{4}\.\d{2}\.\d{2}-\d{2}\.\d{2}\.\d{2}:\d{3}\]\[\s*\d+\]Server:\s+"([^"]{1,80})"\s+has successfully started!\s*$')
 DEATH_LINE = re.compile(
     r"(?P<timestamp>\d{4}\.\d{2}\.\d{2}_\d{2}\.\d{2}\.\d{2})\s*:\s*"
     r"(?P<victim>.+?)\s*-\s*Lvl\s+(?P<victim_level>\d+)\s*\([^)]*\)\s*"
-    r"was killed(?: by (?:a|an)\s+(?P<killer>.+?)\s*-\s*Lvl\s+(?P<killer_level>\d+)\s*\([^)]*\))?!\s*$",
+    r"was killed(?: by (?:a|an)\s+(?P<killer>.+?)\s*-\s*Lvl\s+(?P<killer_level>\d+)\s*\([^)]*\))?!"
+    r"(?:\s+\[KillerSID:\s*\d+\])?\s*$",
     re.IGNORECASE,
 )
 UNKNOWN_DEATH_LINE = re.compile(
     r"(?P<timestamp>\d{4}\.\d{2}\.\d{2}_\d{2}\.\d{2}\.\d{2})\s*:\s*"
-    r"(?P<victim>.+?)\s*-\s*Lvl\s+(?P<victim_level>\d+)\s*\([^)]*\)\s*was killed!\s*$",
+    r"(?P<victim>.+?)\s*-\s*Lvl\s+(?P<victim_level>\d+)\s*\([^)]*\)\s*was killed!"
+    r"(?:\s+\[KillerSID:\s*\d+\])?\s*$",
     re.IGNORECASE,
 )
 
@@ -46,6 +49,38 @@ class DeathEvent:
     killer_name: str | None
     killer_level: int | None
     zombified: bool
+
+
+@dataclass(frozen=True)
+class RecordedDeath:
+    event: DeathEvent
+    player_key: str | None
+    total_deaths: int | None
+
+
+def parse_server_start_line(line: str) -> str | None:
+    match = SERVER_START_LINE.match(line.strip())
+    if not match:
+        return None
+    name = re.sub(r"\s+", " ", match.group(1)).strip()
+    if not name or any(ord(char) < 32 for char in name):
+        return None
+    return name
+
+
+def discover_server_name(path: str | Path, max_bytes: int = 65536) -> str | None:
+    path = Path(path)
+    if not path.is_file():
+        return None
+    with path.open("rb") as handle:
+        handle.seek(0, 2)
+        handle.seek(max(0, handle.tell() - max_bytes))
+        text = handle.read().decode("utf-8", errors="replace")
+    for line in reversed(text.splitlines()):
+        name = parse_server_start_line(line)
+        if name:
+            return name
+    return None
 
 
 def parse_death_line(line: str) -> DeathEvent | None:
@@ -163,6 +198,7 @@ class ArkStatsStore:
                 self._active = dict(snapshot)
                 self._last_mono = now_mono
                 self._upsert_names(snapshot)
+                self._set_metadata("playtime_interrupted", "0")
                 self.db.commit()
                 return
             elapsed = min(max(0.0, now_mono - self._last_mono), MAX_GAP_SECONDS)
@@ -184,6 +220,36 @@ class ArkStatsStore:
             self.db.commit()
             self._active = dict(snapshot)
             self._last_mono = now_mono
+            self._set_metadata("playtime_interrupted", "0")
+
+    def interrupt_snapshot(self) -> None:
+        with self.lock:
+            self._active = None
+            self._last_mono = None
+            self._set_metadata("playtime_interrupted", "1")
+            self.db.commit()
+
+    def playtime_interrupted(self) -> bool:
+        with self.lock:
+            return self._metadata("playtime_interrupted") == "1"
+
+    def set_server_outage(self, value: bool) -> None:
+        with self.lock:
+            self._set_metadata("server_outage_confirmed", "1" if value else "0")
+            self.db.commit()
+
+    def server_outage(self) -> bool:
+        with self.lock:
+            return self._metadata("server_outage_confirmed") == "1"
+
+    def set_server_name(self, name: str) -> None:
+        with self.lock:
+            self._set_metadata("server_name", name)
+            self.db.commit()
+
+    def server_name(self) -> str | None:
+        with self.lock:
+            return self._metadata("server_name")
 
     def _upsert_names(self, snapshot: dict[str, str]) -> None:
         epoch = int(self.db.execute("SELECT value FROM metadata WHERE key='tracking_epoch'").fetchone()[0])
@@ -209,20 +275,20 @@ class ArkStatsStore:
             self._last_mono = None
         return started
 
-    def collect_log(self, path: str | Path, player_snapshot: dict[str, str]) -> int:
+    def collect_log(self, path: str | Path, player_snapshot: dict[str, str], return_events: bool = False) -> int | list[RecordedDeath]:
         """Read only new complete lines; return the number of inserted deaths."""
         path = Path(path)
         with self.lock:
             state = self._metadata("death_file_state")
             if not path.is_file():
-                return 0
+                return [] if return_events else 0
             size = path.stat().st_size
             head_hash = self._head_hash(path)
             if not state:
                 stat = path.stat()
                 self._set_metadata("death_file_state", json.dumps({"name": str(path), "offset": size, "partial": "", "mtime_ns": stat.st_mtime_ns, "inode": stat.st_ino, "head_hash": head_hash}))
                 self.db.commit()
-                return 0
+                return [] if return_events else 0
             saved = json.loads(state)
             offset = int(saved.get("offset", 0))
             stat = path.stat()
@@ -257,6 +323,7 @@ class ArkStatsStore:
                 complete = ""
             epoch = self._epoch()
             inserted = 0
+            recorded: list[RecordedDeath] = []
             for line in complete.splitlines():
                 event = parse_death_line(line)
                 if not event:
@@ -274,11 +341,15 @@ class ArkStatsStore:
                         if event.killer_name:
                             counts[event.killer_name] = counts.get(event.killer_name, 0) + 1
                         self.db.execute("UPDATE players SET total_deaths=COALESCE(total_deaths,0)+1, zombified_deaths=zombified_deaths+?, killer_counts=?, last_death_cause=? WHERE player_key=?", (int(event.zombified), json.dumps(counts, sort_keys=True), event.killer_name or "Unknown", key))
+                        total = self.db.execute("SELECT total_deaths FROM players WHERE player_key=?", (key,)).fetchone()[0]
+                    else:
+                        total = None
+                    recorded.append(RecordedDeath(event, key, total))
             next_offset = final_offset if read_path != path else new_offset
             next_partial = partial if read_path != path else partial
             self._set_metadata("death_file_state", json.dumps({"name": str(path), "offset": next_offset, "partial": next_partial, "mtime_ns": stat.st_mtime_ns, "inode": stat.st_ino, "head_hash": head_hash}))
             self.db.commit()
-            return inserted
+            return recorded if return_events else inserted
 
     def _metadata(self, key: str) -> str | None:
         row = self.db.execute("SELECT value FROM metadata WHERE key=?", (key,)).fetchone()
