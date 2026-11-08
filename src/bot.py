@@ -10,7 +10,6 @@ load_dotenv()
 
 TOKEN = os.getenv("DISCORD_TOKEN")
 OWNER_ID = int(os.getenv("OWNER_ID", "0"))
-GUILD_ID = int(os.getenv("GUILD_ID", "0"))
 ALLOWED_CHANNELS = {int(x) for x in os.getenv("ALLOWED_CHANNEL_IDS", "").split(",") if x.strip().isdigit()}
 
 # Discord Intents
@@ -48,6 +47,9 @@ class MyBot(commands.Bot):
             "cogs.photosaver",
             "cogs.events",
             "cogs.audio",
+            "cogs.ark",
+            "cogs.ark_chat",
+            "cogs.ark_players",
         ):
             try:
                 await self.load_extension(ext)
@@ -55,18 +57,8 @@ class MyBot(commands.Bot):
             except Exception as e:
                 log.exception(f"Error loading {ext}: {e}")
 
-        # Force GUILD sync (instant) if GUILD_ID present, else global
-        try:
-            if GUILD_ID:
-                guild = discord.Object(id=GUILD_ID)
-                self.tree.copy_global_to(guild=guild)
-                synced = await self.tree.sync(guild=guild)
-                log.info(f"Synced {len(synced)} commands to guild {GUILD_ID}: {[c.name for c in synced]}")
-            else:
-                synced = await self.tree.sync()
-                log.info(f"Synced {len(synced)} global commands: {[c.name for c in synced]}")
-        except Exception as e:
-            log.exception(f"Slash command sync failed: {e}")
+        # Slash-command synchronization is deliberately manual. Use /sync to
+        # publish the current command tree globally after reviewing changes.
 
     async def on_ready(self):
         log.info(f"Logged in as {self.user} (id={self.user.id})")

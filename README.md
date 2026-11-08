@@ -178,6 +178,43 @@ discord-bot-pi/
 * [ ] Improve `/ai` with moderation guardrails
 * [ ] GitHub Actions workflow for lint/test before push
 
+## ARK chat relay (disabled by default)
+
+The optional chat relay is disabled unless both directions are enabled
+explicitly in the private `.env` file:
+
+```ini
+ARK_CHANNEL_ID=1568775581313798345
+ARK_CHAT_POLL_SECONDS=5
+ARK_RELAY_TO_DISCORD=false
+ARK_RELAY_TO_ARK=false
+ARK_PLAYER_NOTIFICATIONS=false
+ARK_PLAYER_POLL_SECONDS=10
+ARK_RCON_HOST=192.168.1.10
+ARK_RCON_PORT=27020
+```
+
+`ARK_RELAY_TO_DISCORD=true` polls `GetChat` every five seconds, establishes a
+startup baseline, and forwards only new normalized messages to the exact text
+channel identified by `ARK_CHANNEL_ID`. `ARK_RELAY_TO_ARK=true` forwards
+ordinary messages from that channel through the fixed `ServerChat` operation;
+it does not accept arbitrary RCON input. Mentions, formatting, control
+characters, and oversized messages are sanitized. Per-user rate limits,
+bounded queues, deduplication, reconnect backoff, and Discord mention
+suppression are applied.
+
+`ARK_PLAYER_NOTIFICATIONS=true` enables separate read-only `ListPlayers`
+polling every ten seconds. The first successful snapshot establishes a
+baseline, outages clear the baseline, and recovery establishes a new baseline
+without generating false joins or leaves. Player platform identifiers are used
+only internally when available and are never posted or logged. Notifications
+are delivered only to `ARK_CHANNEL_ID`.
+
+Retrieving the ARK chat buffer may affect other RCON consumers. Enable only one
+chat-buffer consumer at a time until the server behavior is confirmed. To
+rollback, set both relay flags to `false` and restart the bot through the normal
+service procedure; no Discord command synchronization is required.
+
 ---
 
 ## 📝 License
