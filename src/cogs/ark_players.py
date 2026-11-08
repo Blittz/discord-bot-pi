@@ -13,6 +13,7 @@ import discord
 from discord.ext import commands, tasks
 
 from src.ark_service import shared_ark_service
+from src.ark_stats import STATS_ENABLED, shared_ark_stats_store
 
 log = logging.getLogger(__name__)
 CHANNEL_ID = int(os.getenv("ARK_CHANNEL_ID", "0"))
@@ -40,6 +41,7 @@ class ArkPlayers(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.service = shared_ark_service(bot)
+        self.stats = shared_ark_stats_store(bot)
         self.snapshot: dict[str, str] | None = None
         self.queue: asyncio.Queue[PlayerAnnouncement] = asyncio.Queue(maxsize=MAX_QUEUE)
         self._worker = asyncio.create_task(self._delivery_worker())
@@ -75,6 +77,8 @@ class ArkPlayers(commands.Cog):
         if current is None:
             self.snapshot = None
             return
+        if STATS_ENABLED:
+            self.stats.record_snapshot(current)
         if self.snapshot is None:
             self.snapshot = current
             return
@@ -105,13 +109,13 @@ class ArkPlayers(commands.Cog):
 
     @tasks.loop(seconds=POLL_SECONDS)
     async def _poll(self):
-        if ENABLED:
+        if ENABLED or STATS_ENABLED:
             await self._poll_once()
 
     @_poll.before_loop
     async def _before_poll(self):
         await self.bot.wait_until_ready()
-        if ENABLED:
+        if ENABLED or STATS_ENABLED:
             await self._poll_once()
 
 
