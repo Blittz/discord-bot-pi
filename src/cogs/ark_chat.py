@@ -24,6 +24,10 @@ RELAY_TO_DISCORD = os.getenv("ARK_RELAY_TO_DISCORD", "false").lower() in {"1", "
 RELAY_TO_ARK = os.getenv("ARK_RELAY_TO_ARK", "false").lower() in {"1", "true", "yes", "on"}
 MAX_CHAT_LENGTH = 180
 NON_CHAT_STATUS_RESPONSES = frozenset({"Server received, But no response!!"})
+ADMIN_LOG_PREFIX = re.compile(r"^ARK\s+AdminCmd\s*:", re.IGNORECASE)
+ANSI_ESCAPE = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))")
+CONTROL_CHARS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+FORBIDDEN_OUTGOING_SUBSTRINGS = ("admincmd:", "arkid:", "platformid:")
 DEDUP_TTL = 900.0
 MAX_DEDUP_ENTRIES = 512
 MAX_QUEUE = 50
@@ -72,7 +76,9 @@ class InboundMessage:
 
 
 def normalize_chat_line(line: str) -> str:
-    line = unicodedata.normalize("NFKC", line).replace("\x00", " ")
+    line = ANSI_ESCAPE.sub("", line)
+    line = CONTROL_CHARS.sub(" ", line)
+    line = unicodedata.normalize("NFKC", line)
     line = re.sub(r"\s+", " ", line).strip()
     return line[:MAX_CHAT_LENGTH]
 
@@ -99,10 +105,25 @@ def sanitize_discord_text(line: str) -> str:
 
 
 def parse_chat_lines(response: str) -> list[str]:
-    return [
-        line for line in (normalize_chat_line(x) for x in response.splitlines())
-        if line and line not in NON_CHAT_STATUS_RESPONSES
-    ]
+    lines: list[str] = []
+    suppress_admin_record = False
+    paren_depth = 0
+    for raw_line in response.splitlines():
+        line = normalize_chat_line(raw_line)
+        if not line:
+            continue
+        if suppress_admin_record:
+            paren_depth += line.count("(") - line.count(")")
+            if paren_depth <= 0:
+                suppress_admin_record = False
+            continue
+        if ADMIN_LOG_PREFIX.match(line):
+            paren_depth = line.count("(") - line.count(")")
+            suppress_admin_record = paren_depth > 0
+            continue
+        if line not in NON_CHAT_STATUS_RESPONSES:
+            lines.append(line)
+    return lines
 
 
 class ExpiringDedup:
@@ -240,7 +261,12 @@ class ArkChat(commands.Cog):
                 if channel is None:
                     await self._retry_inbound(item, "channel-unavailable")
                 else:
-                    await channel.send(f"**ARK** {sanitize_discord_text(item.text)}", allowed_mentions=discord.AllowedMentions.none())
+                    outgoing_text = f"**ARK** {sanitize_discord_text(item.text)}"
+                    if any(token in outgoing_text.casefold() for token in FORBIDDEN_OUTGOING_SUBSTRINGS):
+                        self.inbound_inflight.discard(item.key)
+                        self.inbound_delivered.add_key(item.key)
+                        continue
+                    await channel.send(outgoing_text, allowed_mentions=discord.AllowedMentions.none())
                     self.inbound_inflight.discard(item.key)
                     self.inbound_delivered.add_key(item.key)
                     self.counters.sent += 1

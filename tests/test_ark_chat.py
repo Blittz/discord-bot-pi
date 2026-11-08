@@ -31,6 +31,29 @@ class ArkChatTests(unittest.TestCase):
         line = "Alice: Server received, But no response!! please"
         self.assertEqual(parse_chat_lines(line), [line])
 
+    def test_admin_command_log_entries_are_filtered_before_relay(self):
+        response = """
+            ARK AdminCmd: god (PlayerName: Blittz, ARKID: secret, PlatformID: private)
+             ark   AdminCmd : InfiniteStats (PlayerName: Blittz, ARKID: secret2, PlatformID: private2)
+        """
+        self.assertEqual(parse_chat_lines(response), [])
+
+    def test_normal_player_chat_is_preserved(self):
+        self.assertEqual(parse_chat_lines("Alice: hello everyone"), ["Alice: hello everyone"])
+
+    def test_player_chat_mentioning_admin_prefix_is_preserved(self):
+        line = "Alice: ARK AdminCmd: god is an admin command"
+        self.assertEqual(parse_chat_lines(line), [line])
+
+    def test_wrapped_multiline_admin_record_is_filtered(self):
+        response = (
+            "Alice: hello\n"
+            "\x1b[32mARK AdminCmd: god (PlayerName: hidden,\n"
+            " ARKID: hidden-id, PlatformID: hidden-platform)\n"
+            "Bob: still here"
+        )
+        self.assertEqual(parse_chat_lines(response), ["Alice: hello", "Bob: still here"])
+
     def test_identical_text_from_different_speakers_has_different_key(self):
         from src.cogs.ark_chat import chat_event_key
         self.assertNotEqual(chat_event_key("Alice: hello"), chat_event_key("Bob: hello"))
@@ -124,6 +147,38 @@ class ArkOutboundTests(unittest.IsolatedAsyncioTestCase):
         worker.cancel()
         self.assertEqual(cog.counters.failed, 1)
         self.assertFalse(cog.inbound_delivered.contains_key("k"))
+
+    async def test_final_discord_content_filter_skips_forbidden_substrings(self):
+        cog = self.make_cog()
+        channel = SimpleNamespace(send=AsyncMock())
+        cog._channel.return_value = channel
+        worker = asyncio.create_task(cog._discord_worker())
+        blocked = ["before AdminCmd: after", "ARKID: hidden", "prefix PLATFORMID: hidden"]
+        for index, text in enumerate(blocked):
+            key = f"blocked-{index}"
+            cog.inbound_queue.put_nowait(InboundMessage(key, text, 0))
+            cog.inbound_queued.add(key)
+        await asyncio.wait_for(cog.inbound_queue.join(), 2)
+        worker.cancel()
+        self.assertEqual(channel.send.await_count, 0)
+        self.assertTrue(all(cog.inbound_delivered.contains_key(f"blocked-{i}") for i in range(len(blocked))))
+
+    async def test_final_discord_content_filter_is_case_insensitive_and_preserves_normal_chat(self):
+        cog = self.make_cog()
+        channel = SimpleNamespace(send=AsyncMock())
+        cog._channel.return_value = channel
+        worker = asyncio.create_task(cog._discord_worker())
+        item = InboundMessage("normal", "Alice: hello there", 0)
+        cog.inbound_queue.put_nowait(item)
+        cog.inbound_queued.add(item.key)
+        for index, text in enumerate(("arKid: hidden", "platformID: hidden", "adMiNcMd: hidden")):
+            key = f"case-{index}"
+            cog.inbound_queue.put_nowait(InboundMessage(key, text, 0))
+            cog.inbound_queued.add(key)
+        await asyncio.wait_for(cog.inbound_queue.join(), 2)
+        worker.cancel()
+        self.assertEqual(channel.send.await_count, 1)
+        self.assertEqual(channel.send.await_args.args[0], "**ARK** Alice: hello there")
 
 
 if __name__ == "__main__":
