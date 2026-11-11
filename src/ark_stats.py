@@ -368,7 +368,14 @@ class ArkStatsStore:
         self.db.execute("INSERT OR REPLACE INTO metadata(key,value) VALUES(?,?)", (key, value))
 
     def _match_player(self, victim: str, snapshot: dict[str, str]) -> str | None:
-        matches = [key for key, name in snapshot.items() if name.casefold() == victim.casefold()]
+        # Current names override stale names for the same player key.
+        known_players = dict(self.db.execute("SELECT player_key, display_name FROM players"))
+        known_players.update(snapshot)
+        normalized_victim = victim.casefold()
+        matches = [
+            key for key, name in known_players.items()
+            if " ".join(name.split()).casefold() == normalized_victim
+        ]
         return matches[0] if len(matches) == 1 else None
 
     def _epoch(self) -> int:
