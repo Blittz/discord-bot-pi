@@ -214,7 +214,7 @@ def test_offline_death_counts_for_known_survivor_after_restart(tmp_path):
     with path.open("a") as handle:
         handle.write("2026.11.08_14.11.00: BLITTZ - Lvl 75 () was killed!\n")
     [death] = store.collect_log(path, {}, return_events=True)
-    assert (death.player_key, death.total_deaths) == ("id:blittz", 1)
+    assert (death.player_key, death.total_deaths, death.offline) == ("id:blittz", 1, True)
     assert store.collect_log(path, {}) == 0
     assert store.death_summary("id:blittz")[:3] == (1, 0, "Unknown")
     store.close()
@@ -229,7 +229,19 @@ def test_death_with_same_name_online_and_offline_stays_unassigned(tmp_path):
     with path.open("a") as handle:
         handle.write("2026.11.08_14.11.00: Blittz - Lvl 75 () was killed!\n")
     [death] = store.collect_log(path, {"id:online": "Blittz"}, return_events=True)
-    assert (death.player_key, death.total_deaths) == (None, None)
+    assert (death.player_key, death.total_deaths, death.offline) == (None, None, False)
     assert store.death_summary("id:offline")[0] == 0
     assert store.death_summary("id:online") is None
+    store.close()
+
+def test_unknown_roster_counts_known_death_without_offline_label(tmp_path):
+    path = tmp_path / "ShooterGame.log"
+    path.write_text("header\n")
+    store = ArkStatsStore(tmp_path / "stats.sqlite3")
+    store.record_snapshot({"id:blittz": "Blittz"})
+    assert store.collect_log(path, None) == 0
+    with path.open("a") as handle:
+        handle.write("2026.11.08_14.11.00: Blittz - Lvl 75 () was killed!\n")
+    [death] = store.collect_log(path, None, return_events=True)
+    assert (death.player_key, death.total_deaths, death.offline) == ("id:blittz", 1, False)
     store.close()
