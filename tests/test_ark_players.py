@@ -125,6 +125,16 @@ class ArkPlayerNotificationTests(unittest.IsolatedAsyncioTestCase):
         messages = [call.args[0] for call in cog._enqueue.await_args_list]
         self.assertEqual(messages.count("🟢 **ARK server is back online!**"), 1)
 
+    async def test_persisted_outage_recovers_on_first_success_after_restart(self):
+        cog = self.make_cog()
+        cog._availability_initialized = True
+        cog._outage_announced = True
+        cog.service.player_snapshot.return_value = {}
+        import src.cogs.ark_players as module
+        with patch.object(module, "RELAY_TO_DISCORD", True):
+            await cog._poll_once()
+        self.assertEqual(cog._enqueue.await_args.args[0], "🟢 **ARK server is back online!**")
+
     async def test_initial_offline_period_does_not_announce(self):
         cog = self.make_cog()
         cog.service.player_snapshot.side_effect = ConnectionError()

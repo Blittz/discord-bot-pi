@@ -62,7 +62,7 @@ class ArkPlayers(commands.Cog):
         self.stats = shared_ark_stats_store(bot)
         self.snapshot: dict[str, str] | None = None
         self.latest_snapshot: dict[str, str] | None = None
-        self._availability_initialized = False
+        self._availability_initialized = self.stats.server_outage()
         self._rcon_failures = 0
         self._outage_announced = self.stats.server_outage()
         self.queue: asyncio.Queue[PlayerAnnouncement] = asyncio.Queue(maxsize=MAX_QUEUE)
