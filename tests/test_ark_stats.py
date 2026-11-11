@@ -198,3 +198,38 @@ def test_schema_is_private_and_future_death_columns_exist(tmp_path):
     columns = {row[1] for row in sqlite3.connect(path).execute("PRAGMA table_info(players)")}
     assert {"total_deaths", "last_death_cause"} <= columns
     assert store.tracking_started()
+
+
+def test_offline_death_counts_for_known_survivor_after_restart(tmp_path):
+    path = tmp_path / "ShooterGame.log"
+    path.write_text("header\n")
+    db_path = tmp_path / "stats.sqlite3"
+    store = ArkStatsStore(db_path)
+    store.record_snapshot({"id:blittz": "Blittz"})
+    store.record_snapshot({})
+    assert store.collect_log(path, {}) == 0
+    store.close()
+
+    store = ArkStatsStore(db_path)
+    with path.open("a") as handle:
+        handle.write("2026.11.08_14.11.00: BLITTZ - Lvl 75 () was killed!\n")
+    [death] = store.collect_log(path, {}, return_events=True)
+    assert (death.player_key, death.total_deaths) == ("id:blittz", 1)
+    assert store.collect_log(path, {}) == 0
+    assert store.death_summary("id:blittz")[:3] == (1, 0, "Unknown")
+    store.close()
+
+
+def test_death_with_same_name_online_and_offline_stays_unassigned(tmp_path):
+    path = tmp_path / "ShooterGame.log"
+    path.write_text("header\n")
+    store = ArkStatsStore(tmp_path / "stats.sqlite3")
+    store.record_snapshot({"id:offline": "Blittz"})
+    assert store.collect_log(path, {}) == 0
+    with path.open("a") as handle:
+        handle.write("2026.11.08_14.11.00: Blittz - Lvl 75 () was killed!\n")
+    [death] = store.collect_log(path, {"id:online": "Blittz"}, return_events=True)
+    assert (death.player_key, death.total_deaths) == (None, None)
+    assert store.death_summary("id:offline")[0] == 0
+    assert store.death_summary("id:online") is None
+    store.close()
