@@ -25,6 +25,7 @@ RELAY_TO_ARK = os.getenv("ARK_RELAY_TO_ARK", "false").lower() in {"1", "true", "
 MAX_CHAT_LENGTH = 180
 NON_CHAT_STATUS_RESPONSES = frozenset({"Server received, But no response!!"})
 ADMIN_LOG_PREFIX = re.compile(r"^ARK\s+AdminCmd\s*:", re.IGNORECASE)
+SERVER_CHAT_PREFIX = re.compile(r"^(?:\d{4}\.\d{2}\.\d{2}_\d{2}\.\d{2}\.\d{2}:\s*)?SERVER\s*:", re.IGNORECASE)
 ANSI_ESCAPE = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))")
 CONTROL_CHARS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 FORBIDDEN_OUTGOING_SUBSTRINGS = ("admincmd:", "arkid:", "platformid:")
@@ -121,7 +122,8 @@ def parse_chat_lines(response: str) -> list[str]:
             paren_depth = line.count("(") - line.count(")")
             suppress_admin_record = paren_depth > 0
             continue
-        if line not in NON_CHAT_STATUS_RESPONSES:
+        # ServerChat broadcasts can come back with altered or lost Unicode.
+        if line not in NON_CHAT_STATUS_RESPONSES and not SERVER_CHAT_PREFIX.match(line):
             lines.append(line)
     return lines
 
@@ -172,7 +174,6 @@ class ArkChat(commands.Cog):
         self.user_pending: dict[int, int] = {}
         self.feedback_at: dict[tuple[int, str], float] = {}
         self.counters = RelayCounters()
-        self.outbound_echoes: dict[str, float] = {}
         self.retry_after = 0.0
         self.retry_delay = POLL_SECONDS
         self._baseline_ready = False
@@ -213,10 +214,6 @@ class ArkChat(commands.Cog):
                 self._baseline_ready = True
                 return
             for line in lines:
-                now = time.monotonic()
-                self.outbound_echoes = {text: expires for text, expires in self.outbound_echoes.items() if expires > now}
-                if any(text in line for text in self.outbound_echoes):
-                    continue
                 key = chat_event_key(line)
                 if key in self.inbound_queued or key in self.inbound_inflight or self.inbound_delivered.contains_key(key):
                     self.counters.duplicate += 1
@@ -316,7 +313,6 @@ class ArkChat(commands.Cog):
             try:
                 await self.service.server_chat(item.text)
                 self.counters.sent += 1
-                self.outbound_echoes[item.text] = time.monotonic() + DEDUP_TTL
             except (TimeoutError, ConnectionError, OSError, PermissionError):
                 self.counters.failed += 1
                 await self._feedback(item.message, "send-failed", "ARK chat delivery failed; it was not retried.")
