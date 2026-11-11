@@ -56,6 +56,7 @@ class RecordedDeath:
     event: DeathEvent
     player_key: str | None
     total_deaths: int | None
+    offline: bool = False
 
 
 def parse_server_start_line(line: str) -> str | None:
@@ -275,7 +276,7 @@ class ArkStatsStore:
             self._last_mono = None
         return started
 
-    def collect_log(self, path: str | Path, player_snapshot: dict[str, str], return_events: bool = False) -> int | list[RecordedDeath]:
+    def collect_log(self, path: str | Path, player_snapshot: dict[str, str] | None, return_events: bool = False) -> int | list[RecordedDeath]:
         """Read only new complete lines; return the number of inserted deaths."""
         path = Path(path)
         with self.lock:
@@ -328,7 +329,7 @@ class ArkStatsStore:
                 event = parse_death_line(line)
                 if not event:
                     continue
-                key = self._match_player(event.victim_name, player_snapshot)
+                key = self._match_player(event.victim_name, player_snapshot or {})
                 cursor = new_offset - len(partial.encode("utf-8"))
                 row = (event.event_id, event.timestamp, event.victim_name, event.victim_level, key, event.killer_name, event.killer_level, int(event.zombified), None, epoch, str(read_path), cursor)
                 result = self.db.execute("INSERT OR IGNORE INTO death_events VALUES(?,?,?,?,?,?,?,?,?,?,?,?)", row)
@@ -344,7 +345,8 @@ class ArkStatsStore:
                         total = self.db.execute("SELECT total_deaths FROM players WHERE player_key=?", (key,)).fetchone()[0]
                     else:
                         total = None
-                    recorded.append(RecordedDeath(event, key, total))
+                    offline = key is not None and player_snapshot is not None and key not in player_snapshot
+                    recorded.append(RecordedDeath(event, key, total, offline))
             next_offset = final_offset if read_path != path else new_offset
             next_partial = partial if read_path != path else partial
             self._set_metadata("death_file_state", json.dumps({"name": str(path), "offset": next_offset, "partial": next_partial, "mtime_ns": stat.st_mtime_ns, "inode": stat.st_ino, "head_hash": head_hash}))
