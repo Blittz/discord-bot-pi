@@ -4,12 +4,12 @@ from pathlib import Path
 from src.ark_stats import ArkStatsStore, discover_server_name, discord_timestamp, format_duration, parse_death_line, parse_server_start_line
 
 
-FIXTURE = Path(__file__).parent / "fixtures/ark_deaths.log"
+FIXTURE = Path(__file__).parent / "fixtures/ark_deaths.log.txt"
 
 
 def test_death_parser_extracts_creature_and_zombified_classification():
     event = parse_death_line(FIXTURE.read_text().splitlines()[0])
-    assert event.victim_name == "Blittz"
+    assert event.victim_name == "Sample Survivor"
     assert event.victim_level == 75
     assert event.killer_name == "Zombified Pteranodon"
     assert event.killer_level == 10
