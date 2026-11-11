@@ -38,6 +38,18 @@ class ArkChatTests(unittest.TestCase):
         """
         self.assertEqual(parse_chat_lines(response), [])
 
+    def test_server_chat_echoes_are_filtered_without_dropping_player_chat(self):
+        response = (
+            "SERVER: Hahahahaha it worked ????\n"
+            "2026.11.11_00.46.44: SERVER: Hahahahaha it worked ￰ﾟﾘﾛ\n"
+            "Alice: Hahahahaha it worked 😛\n"
+            "Bob: SERVER: hello"
+        )
+        self.assertEqual(
+            parse_chat_lines(response),
+            ["Alice: Hahahahaha it worked 😛", "Bob: SERVER: hello"],
+        )
+
     def test_normal_player_chat_is_preserved(self):
         self.assertEqual(parse_chat_lines("Alice: hello everyone"), ["Alice: hello everyone"])
 
@@ -85,7 +97,6 @@ class ArkOutboundTests(unittest.IsolatedAsyncioTestCase):
         cog.user_sends = {}
         cog.user_pending = {}
         cog.feedback_at = {}
-        cog.outbound_echoes = {}
         cog.feedback = AsyncMock()
         cog._channel = AsyncMock()
         return cog
