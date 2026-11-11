@@ -61,7 +61,7 @@ class ArkPlayers(commands.Cog):
         self.service = shared_ark_service(bot)
         self.stats = shared_ark_stats_store(bot)
         self.snapshot: dict[str, str] | None = None
-        self.latest_snapshot: dict[str, str] = {}
+        self.latest_snapshot: dict[str, str] | None = None
         self._availability_initialized = False
         self._rcon_failures = 0
         self._outage_announced = self.stats.server_outage()
@@ -101,6 +101,7 @@ class ArkPlayers(commands.Cog):
     async def _poll_once(self):
         current = await self._sample()
         if current is None:
+            self.latest_snapshot = None
             self._rcon_failures += 1
             self.stats.interrupt_snapshot()
             self.snapshot = None
@@ -145,7 +146,13 @@ class ArkPlayers(commands.Cog):
         if event.killer_name:
             killer = safe_player_name(event.killer_name)
             level = f"level {event.killer_level} " if event.killer_level is not None else ""
-            text = f"{'🧟' if event.zombified else '💀'} **{victim}** was killed by a {level}{killer}"
+            icon = "🧟" if event.zombified else "💀"
+            if death.offline:
+                text = f"{icon} Even offline, **{victim}** still managed to get eaten by a {level}{killer}"
+            else:
+                text = f"{icon} **{victim}** was killed by a {level}{killer}"
+        elif death.offline:
+            text = f"💀 Even offline, **{victim}** still found a way to die"
         else:
             text = f"💀 **{victim}** died under mysterious circumstances"
         if death.total_deaths is not None:
@@ -177,7 +184,7 @@ class ArkPlayers(commands.Cog):
         path = LOG_DIRECTORY / LOG_FILENAME
         while True:
             try:
-                deaths = await asyncio.to_thread(self.stats.collect_log, path, dict(self.latest_snapshot), True)
+                deaths = await asyncio.to_thread(self.stats.collect_log, path, self.latest_snapshot, True)
                 if RELAY_TO_DISCORD:
                     for death in deaths:
                         await self._enqueue_death(death)

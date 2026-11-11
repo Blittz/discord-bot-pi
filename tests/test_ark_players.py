@@ -186,6 +186,13 @@ class ArkPlayerNotificationTests(unittest.IsolatedAsyncioTestCase):
         await cog._enqueue_death(RecordedDeath(DeathEvent("b", "t", "Alice", 1, None, None, False), None, None))
         self.assertEqual(cog._enqueue.await_args.args[0], "💀 **Alice** died under mysterious circumstances")
 
+    async def test_offline_death_announcements_include_cause_and_total(self):
+        cog = self.make_cog()
+        await cog._enqueue_death(RecordedDeath(DeathEvent("a", "t", "Blittz", 75, None, None, False), "id:a", 1, offline=True))
+        self.assertEqual(cog._enqueue.await_args.args[0], "💀 Even offline, **Blittz** still found a way to die (1 death total)")
+        await cog._enqueue_death(RecordedDeath(DeathEvent("b", "t", "Blittz", 75, "Gigantoraptor", 4, False), "id:a", 2, offline=True))
+        self.assertEqual(cog._enqueue.await_args.args[0], "💀 Even offline, **Blittz** still managed to get eaten by a level 4 Gigantoraptor (2 deaths total)")
+
     async def test_unassigned_death_omits_personal_total(self):
         cog = self.make_cog()
         await cog._enqueue_death(RecordedDeath(DeathEvent("a", "t", "@everyone", 1, "Rex", None, False), None, None))
