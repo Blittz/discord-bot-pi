@@ -12,6 +12,10 @@ TOKEN = os.getenv("DISCORD_TOKEN")
 OWNER_ID = int(os.getenv("OWNER_ID", "0"))
 ALLOWED_CHANNELS = {int(x) for x in os.getenv("ALLOWED_CHANNEL_IDS", "").split(",") if x.strip().isdigit()}
 
+# /ai and @mention replies (cogs.chat) spend OpenAI credits, so they are opt-in.
+# Set AI_ENABLED=true in .env, restart, then run /sync to bring them back.
+AI_ENABLED = os.getenv("AI_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"}
+
 # Discord Intents
 intents = discord.Intents.default()
 intents.guild_scheduled_events = True  # Standard, non-privileged read/update intent.
@@ -27,6 +31,30 @@ log = logging.getLogger("bot")
 async def allowed_channel(interaction: discord.Interaction) -> bool:
     return (not ALLOWED_CHANNELS) or (interaction.channel_id in ALLOWED_CHANNELS)
 
+CORE_EXTENSIONS = (
+    "cogs.core",
+    "cogs.roll",
+    "cogs.admin",
+    "cogs.about",
+    "cogs.dadjoke",
+    "cogs.photosaver",
+    "cogs.events",
+    "cogs.audio",
+    "cogs.ark",
+    "cogs.ark_chat",
+    "cogs.ark_players",
+)
+
+
+def extensions_to_load(ai_enabled: bool = AI_ENABLED) -> tuple:
+    """Cogs to load; cogs.chat (the ChatGPT cog) only when AI is enabled."""
+    exts = list(CORE_EXTENSIONS)
+    if ai_enabled:
+        exts.insert(1, "cogs.chat")
+    else:
+        log.info("AI disabled (set AI_ENABLED=true to load cogs.chat)")
+    return tuple(exts)
+
 class MyBot(commands.Bot):
     def __init__(self):
         super().__init__(command_prefix="!", intents=intents)
@@ -37,20 +65,7 @@ class MyBot(commands.Bot):
 
     async def setup_hook(self):
         # Load cogs with error visibility
-        for ext in (
-            "cogs.core",
-            "cogs.chat",
-            "cogs.roll",
-            "cogs.admin",
-            "cogs.about",
-            "cogs.dadjoke",
-            "cogs.photosaver",
-            "cogs.events",
-            "cogs.audio",
-            "cogs.ark",
-            "cogs.ark_chat",
-            "cogs.ark_players",
-        ):
+        for ext in extensions_to_load():
             try:
                 await self.load_extension(ext)
                 log.info(f"Loaded extension: {ext}")
