@@ -6,6 +6,7 @@ OWNER_ID = int(os.getenv("OWNER_ID", "0"))
 class Admin(commands.Cog):
     def __init__(self, bot): self.bot = bot
 
+    @app_commands.default_permissions(administrator=True)  # hidden from non-admins; the owner check below still applies
     @app_commands.command(name="sync", description="Owner: synchronize slash commands globally")
     async def sync(self, interaction: discord.Interaction):
         if interaction.user.id != OWNER_ID:
