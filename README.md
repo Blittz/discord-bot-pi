@@ -1,7 +1,7 @@
 # Discord Bot on Raspberry Pi 5
 
 ![Python](https://img.shields.io/badge/Python-3.11-blue?logo=python\&logoColor=white)
-![discord.py](https://img.shields.io/badge/discord.py-2.6.2-blueviolet?logo=discord\&logoColor=white)
+![discord.py](https://img.shields.io/badge/discord.py-2.7.1-blueviolet?logo=discord\&logoColor=white)
 ![Raspberry Pi](https://img.shields.io/badge/Runs%20on-Raspberry%20Pi%205-red?logo=raspberrypi\&logoColor=white)
 
 A Discord bot built with **discord.py** and running on a **Raspberry Pi 5**.
@@ -18,7 +18,7 @@ Version **2.1.0** introduces a clean **cog-based architecture** with **slash com
 * `/roll` – Dice roller (XdY±Z)
 * `/adv` – Roll with advantage (1dY±Z)
 * `/dis` – Roll with disadvantage (1dY±Z)
-* `/ai` – Ask ChatGPT (optional, requires API key)
+* `/ai` – Ask ChatGPT (optional, requires API key). Also answers @mentions. Per-user cooldown (`AI_COOLDOWN_SECONDS`, default 10), mentions suppressed in replies, errors logged not shown
 * `/dadjoke` – Free family-friendly dad jokes from icanhazdadjoke.com, with a local fallback; no paid AI credits required
 * `/sync` – Resync commands (owner only)
 
@@ -116,13 +116,13 @@ After=network-online.target
 
 [Service]
 Type=simple
-User=photobot
-Group=photobot
-WorkingDirectory=/home/photobot/discord-bot-pi
+User=blittz
+Group=blittz
+WorkingDirectory=/home/blittz/apps/discord-bot-pi
 Environment=PYTHONUNBUFFERED=1
-Environment=PYTHONPATH=/home/photobot/discord-bot-pi/src
-EnvironmentFile=/home/photobot/discord-bot-pi/.env
-ExecStart=/home/photobot/discord-bot-pi/.venv/bin/python -m src.bot
+Environment=PYTHONPATH=/home/blittz/apps/discord-bot-pi/src
+EnvironmentFile=/home/blittz/apps/discord-bot-pi/.env
+ExecStart=/home/blittz/apps/discord-bot-pi/.venv/bin/python -m src.bot
 Restart=on-failure
 RestartSec=5
 
@@ -157,13 +157,30 @@ Nightly cron job runs it at **2 AM** automatically.
 ```
 discord-bot-pi/
 ├── src/
-│   ├── bot.py         # Main entrypoint
-│   └── cogs/          # Modular command cogs
-│       ├── core.py    # /help
-│       ├── about.py   # /about
-│       ├── roll.py    # /roll, /adv, /dis
-│       ├── chat.py    # /ai (ChatGPT integration)
-│       └── admin.py   # /sync, owner tools
+│   ├── bot.py                 # Main entrypoint
+│   ├── cogs/                  # Modular command cogs
+│   │   ├── core.py            # /help
+│   │   ├── about.py           # /about
+│   │   ├── roll.py            # /roll, /adv, /dis
+│   │   ├── chat.py            # /ai + @mention (ChatGPT, per-user cooldown)
+│   │   ├── admin.py           # /sync (owner only)
+│   │   ├── dadjoke.py         # /dadjoke, /dadjoke-leaderboard
+│   │   ├── audio.py           # /play, /stop, /volume, /importaudio
+│   │   ├── photosaver.py      # Saves image/video attachments to network storage
+│   │   ├── events.py          # Scheduled-event feed for the photo viewer
+│   │   ├── ark.py             # /ark players, /ark status, /ark stats show (read-only)
+│   │   ├── ark_chat.py        # ARK <-> Discord chat relay (disabled by default)
+│   │   ├── ark_players.py     # ARK join/leave, outage and death notifications (disabled by default)
+│   │   └── template.py        # Starting point for new cogs
+│   ├── audio_storage.py       # Scoped audio libraries and quotas
+│   ├── photo_storage.py       # Fail-closed network photo storage
+│   ├── attachment_policy.py   # Age-restricted channel gate
+│   ├── scheduled_events.py    # Event feed exporter
+│   ├── joke_ratings.py        # Dad-joke votes (SQLite)
+│   ├── dnd_jokes.py           # Curated D&D jokes
+│   └── ark_service.py / ark_stats.py  # ARK RCON and statistics
+├── tests/                     # Run: python -B -m unittest discover -s tests -v
+├── tools/                     # Diagnostics (e.g. ark_rcon_diagnostic.py)
 ├── requirements.txt
 ├── .env (not committed)
 └── README.md
@@ -184,13 +201,13 @@ The optional chat relay is disabled unless both directions are enabled
 explicitly in the private `.env` file:
 
 ```ini
-ARK_CHANNEL_ID=1568775581313798345
+ARK_CHANNEL_ID=123456789012345678
 ARK_CHAT_POLL_SECONDS=5
 ARK_RELAY_TO_DISCORD=false
 ARK_RELAY_TO_ARK=false
 ARK_PLAYER_NOTIFICATIONS=false
 ARK_PLAYER_POLL_SECONDS=10
-ARK_RCON_HOST=192.168.1.10
+ARK_RCON_HOST=your-ark-server-ip
 ARK_RCON_PORT=27020
 ```
 
@@ -438,7 +455,7 @@ While audio is playing, the bot profile shows a Discord **Playing** activity usi
 
 ### SFTP audio import
 
-For files too large to upload through Discord, copy them by SFTP into `/home/blittz/discord-audio-import/` (for example: `sftp user@pi:/home/blittz/discord-audio-import/`). An administrator can run `/importaudio`, choose a direct MP3/WAV/OGG/FLAC/M4A file, select My Audio, Channel Audio, or Server Audio, and confirm the import. Files are FFprobe/FFmpeg validated, quota checked, copied into generated scoped storage names, and removed from the import directory only after a successful commit. The import directory is never scanned automatically and subdirectories/symlinks are ignored.
+For files too large to upload through Discord, copy them by SFTP into `~/discord-audio-import/` (for example: `sftp user@pi:discord-audio-import/`). An administrator can run `/importaudio`, choose a direct MP3/WAV/OGG/FLAC/M4A file, select My Audio, Channel Audio, or Server Audio, and confirm the import. Files are FFprobe/FFmpeg validated, quota checked, copied into generated scoped storage names, and removed from the import directory only after a successful commit. The import directory is never scanned automatically and subdirectories/symlinks are ignored.
 
 ### Player message reuse
 
