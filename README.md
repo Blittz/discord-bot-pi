@@ -18,7 +18,7 @@ Version **2.1.0** introduces a clean **cog-based architecture** with **slash com
 * `/roll` – Dice roller (XdY±Z)
 * `/adv` – Roll with advantage (1dY±Z)
 * `/dis` – Roll with disadvantage (1dY±Z)
-* `/ai` – Ask ChatGPT (optional, requires API key). Also answers @mentions. Per-user cooldown (`AI_COOLDOWN_SECONDS`, default 10), mentions suppressed in replies, errors logged not shown
+* `/ai` – Ask ChatGPT (**disabled by default** because it costs OpenAI credits; to re-enable set `AI_ENABLED=true`, add credits, restart, then run `/sync`). Also answers @mentions. Per-user cooldown (`AI_COOLDOWN_SECONDS`, default 10), mentions suppressed in replies, errors logged not shown
 * `/dadjoke` – Free family-friendly dad jokes from icanhazdadjoke.com, with a local fallback; no paid AI credits required
 * `/sync` – Resync commands (owner only)
 
@@ -81,6 +81,8 @@ OWNER_ID=your_user_id
 GUILD_ID=your_guild_id
 # Network photo storage: configure all three values as described below
 # Optional OpenAI integration
+# /ai and @mention replies are off unless AI_ENABLED=true (they spend OpenAI credits)
+# AI_ENABLED=false
 # OPENAI_API_KEY=your_openai_key
 OPENAI_MODEL=gpt-4o-mini
 OPENAI_MAX_TOKENS=500
