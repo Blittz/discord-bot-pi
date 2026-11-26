@@ -8,7 +8,7 @@
 ![discord.py](https://img.shields.io/badge/discord.py-2.7.1-blueviolet?logo=discord&logoColor=white)
 ![Raspberry Pi](https://img.shields.io/badge/Runs%20on-Raspberry%20Pi%205-red?logo=raspberrypi&logoColor=white)
 ![Version](https://img.shields.io/badge/version-2.1.0-success)
-![Tests](https://img.shields.io/badge/tests-103%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-110%20passing-brightgreen)
 ![License](https://img.shields.io/badge/license-MIT-lightgrey)
 
 </div>
@@ -423,9 +423,27 @@ sudo systemctl restart discord-bot.service
 
 ### 6. Updates
 
-`/usr/local/bin/update-discord-bot` pulls the latest code, upgrades dependencies and restarts the service.
-A cron job runs it every night at **2 AM** and logs to `~/update-bot.log`.
-It pulls whichever branch is checked out in the repo, so keep the Pi on `main` and test branches elsewhere.
+`tools/update-bot.sh` is the safe updater. `/usr/local/bin/update-discord-bot` is a symlink to it, and a cron job runs it every
+night at **2 AM**, logging to `~/update-bot.log`.
+
+```bash
+update-discord-bot           # update only if origin/main has new commits
+update-discord-bot --force   # restart and health-check even with nothing new
+```
+
+What it does, in order:
+
+1. Refuses to run (and changes nothing) if the repo is not on `main`, if tracked files have local edits, or if another update is running.
+2. Fetches, then fast-forwards only. Diverged history is never merged or rebased.
+3. If there is nothing new it stops, so the bot is **not** restarted needlessly.
+4. Installs dependencies only when `requirements.txt` changed.
+5. Runs the full test suite. If any test fails, the new commits are rolled back and the bot is left running untouched.
+6. Restarts the service and waits up to 45 seconds for the bot to log in and stay up for 5 more seconds.
+7. If the bot does not come up healthy, it rolls back to the previous commit, restarts again and verifies that too.
+
+The script exits non-zero on any failure or rollback, and every step is time-stamped in the log.
+Its behavior (good update, failing tests, unhealthy deploy, wrong branch, dirty tree) is covered by `tests/test_update_script.py`,
+which uses throwaway git repos and a stubbed `systemctl`, so the real bot is never touched.
 
 ### Changing the bot
 
@@ -465,7 +483,9 @@ discord-bot-pi/
 │   ├── joke_ratings.py       # Dad-joke votes (SQLite)
 │   └── dnd_jokes.py          # Curated D&D jokes
 ├── tests/                    # unittest suite
-├── tools/                    # Diagnostics (e.g. ark_rcon_diagnostic.py)
+├── tools/
+│   ├── update-bot.sh         # Safe updater with tests, health check and rollback
+│   └── ark_rcon_diagnostic.py  # ARK RCON diagnostics
 ├── requirements.txt
 └── README.md
 ```
@@ -480,11 +500,11 @@ New features are one file: copy `src/cogs/template.py`, then add the cog to `COR
 python -B -m unittest discover -s tests -v
 ```
 
-The suite (103 tests) runs without Discord, an ARK server or a mounted network share. Please add tests with every behavior change.
+The suite (110 tests) runs without Discord, an ARK server or a mounted network share. Please add tests with every behavior change.
 
 ## 🚀 Roadmap
 
-- [ ] Restore a checked-in update script with automatic rollback
+- [x] Checked-in update script with tests and automatic rollback
 - [ ] GitHub Actions workflow to run the tests on every pull request
 - [ ] More utility commands (`/weather`, `/quote`)
 - [ ] Moderation guardrails for `/ai`
