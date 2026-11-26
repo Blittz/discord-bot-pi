@@ -105,6 +105,17 @@ def sanitize_discord_text(line: str) -> str:
     return line[:MAX_CHAT_LENGTH]
 
 
+def format_discord_to_ark(display_name: str | None, body: str) -> str:
+    """Build "Name (Discord): text" for the game, capped at MAX_CHAT_LENGTH total.
+
+    The sender label is always kept intact; only the message body is trimmed.
+    """
+    name = sanitize_discord_text(display_name or "")[:32].strip() or "Unknown"
+    prefix = f"{name} (Discord): "
+    room = MAX_CHAT_LENGTH - len(prefix)
+    return prefix + body[:room].rstrip()
+
+
 def parse_chat_lines(response: str) -> list[str]:
     lines: list[str] = []
     suppress_admin_record = False
@@ -344,11 +355,13 @@ class ArkChat(commands.Cog):
             self.counters.reject("rate-limit")
             await self._feedback(message, "rate-limit", "ARK relay rate limit reached; please wait before sending more messages.")
             return
-        text = sanitize_discord_text(message.content)
-        if not text or text.startswith("/"):
+        body = sanitize_discord_text(message.content)
+        if not body or body.startswith("/"):
             self.counters.reject("invalid-message")
             await self._feedback(message, "invalid-message", "That message cannot be sent to ARK.")
             return
+        author = message.author
+        text = format_discord_to_ark(getattr(author, "display_name", None) or getattr(author, "name", None), body)
         try:
             if self.outbound_queue.full() or self.user_pending.get(message.author.id, 0) >= USER_PENDING_LIMIT:
                 self.counters.reject("queue-full")

@@ -3,7 +3,7 @@ import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
-from src.cogs.ark_chat import ArkChat, ExpiringDedup, InboundMessage, OutboundMessage, RelayCounters, chat_fingerprint, parse_chat_lines, sanitize_discord_text
+from src.cogs.ark_chat import ArkChat, ExpiringDedup, InboundMessage, OutboundMessage, RelayCounters, chat_fingerprint, format_discord_to_ark, parse_chat_lines, sanitize_discord_text
 
 
 class ArkChatTests(unittest.TestCase):
@@ -74,11 +74,11 @@ class ArkChatTests(unittest.TestCase):
         self.assertLessEqual(len(sanitize_discord_text("x" * 1000)), 180)
 
 
-def message(content, user_id=1):
+def message(content, user_id=1, display_name="Blittz"):
     return SimpleNamespace(
         content=content,
         channel=SimpleNamespace(id=123),
-        author=SimpleNamespace(id=user_id, bot=False),
+        author=SimpleNamespace(id=user_id, bot=False, display_name=display_name),
         webhook_id=None,
         reply=AsyncMock(),
     )
@@ -113,6 +113,22 @@ class ArkOutboundTests(unittest.IsolatedAsyncioTestCase):
         worker.cancel()
         self.assertEqual([call.args[0] for call in cog.service.server_chat.await_args_list], ["m0", "m1", "m2"])
         self.assertEqual(cog.counters.sent, 3)
+
+    async def test_discord_message_is_queued_with_sender_label(self):
+        cog = self.make_cog()
+        import src.cogs.ark_chat as module
+        with patch.object(module, "CHANNEL_ID", 123), patch.object(module, "RELAY_TO_ARK", True):
+            await cog.on_message(message("Hey all"))
+        self.assertEqual(cog.outbound_queue.get_nowait().text, "Blittz (Discord): Hey all")
+
+    def test_sender_label_is_sanitized_and_kept_when_body_is_long(self):
+        text = format_discord_to_ark("**Bl@@ittz** <@123>", "x" * 1000)
+        self.assertLessEqual(len(text), 180)
+        self.assertIn(" (Discord): ", text)
+        self.assertNotIn("**", text)
+
+    def test_missing_sender_name_falls_back(self):
+        self.assertEqual(format_discord_to_ark("", "hi"), "Unknown (Discord): hi")
 
     async def test_rate_limit_rejects_after_bounded_burst(self):
         cog = self.make_cog()
