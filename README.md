@@ -8,7 +8,7 @@
 ![discord.py](https://img.shields.io/badge/discord.py-2.7.1-blueviolet?logo=discord&logoColor=white)
 ![Raspberry Pi](https://img.shields.io/badge/Runs%20on-Raspberry%20Pi%205-red?logo=raspberrypi&logoColor=white)
 ![Version](https://img.shields.io/badge/version-2.1.0-success)
-![Tests](https://img.shields.io/badge/tests-110%20passing-brightgreen)
+[![Tests](https://github.com/Blittz/discord-bot-pi/actions/workflows/tests.yml/badge.svg)](https://github.com/Blittz/discord-bot-pi/actions/workflows/tests.yml)
 ![License](https://img.shields.io/badge/license-MIT-lightgrey)
 
 </div>
@@ -502,10 +502,13 @@ python -B -m unittest discover -s tests -v
 
 The suite (110 tests) runs without Discord, an ARK server or a mounted network share. Please add tests with every behavior change.
 
+GitHub Actions (`.github/workflows/tests.yml`) runs the same command on Python 3.11 for every pull request and every push to `main`,
+so a failing test shows up as a red check on the PR before anything is merged. The Pi's updater runs the suite again before it restarts the bot.
+
 ## 🚀 Roadmap
 
 - [x] Checked-in update script with tests and automatic rollback
-- [ ] GitHub Actions workflow to run the tests on every pull request
+- [x] GitHub Actions workflow runs the tests on every pull request and push to `main`
 - [ ] More utility commands (`/weather`, `/quote`)
 - [ ] Moderation guardrails for `/ai`
 
