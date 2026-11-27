@@ -497,6 +497,7 @@ New features are one file: copy `src/cogs/template.py`, then add the cog to `COR
 ## 🧪 Development and testing
 
 ```bash
+pip install -r requirements-dev.txt   # adds pytest, used by the audio tests
 python -B -m unittest discover -s tests -v
 ```
 
